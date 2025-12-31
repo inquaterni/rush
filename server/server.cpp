@@ -4,19 +4,11 @@
 
 #include "server.h"
 #include <utility>
-#include "context.h"
+#include "guard.h"
 
 namespace enet {
-    server::server(server &&other) noexcept : host_(std::exchange(other.host_, nullptr)) {}
-    server &server::operator=(server &&other) noexcept {
-        if (this != &other) {
-            host_ = std::exchange(other.host_, nullptr);
-        }
-
-        return *this;
-    }
     std::expected<server, std::string> server::create(const in6_addr addr, const int port) {
-        if (!context::is_initialized()) [[unlikely]] {
+        if (!guard::is_initialized()) [[unlikely]] {
             return std::unexpected("ENet context is not initialized.");
         }
 
