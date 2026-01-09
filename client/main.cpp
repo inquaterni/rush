@@ -1,26 +1,33 @@
 //
 // Created by inquaterni on 12/30/25.
 //
+#include <iostream>
 #include <spdlog/spdlog.h>
 
-#include "../core/include/guard.h"
+#include "../crypto/include/guard.h"
+#include "../net/include/guard.h"
+#include "chacha20poly1305.h"
+#include "cipher.h"
 #include "client.h"
+#include "key_pair.h"
 #include "secure_session.h"
+#include "secure_session_factory.h"
 
 int main() {
     // 🚨🚨🚨 SINGLETON DETECTED 🚨🚨🚨
-    enet::guard::get_instance();
+    net::guard::get_instance();
     // 🚨🚨🚨 SINGLETON DETECTED 🚨🚨🚨
-    sodium::guard::get_instance();
+    crypto::guard::get_instance();
 
-    enet::pkey_t public_key {};
-    std::array<enet::u8, crypto_kx_SECRETKEYBYTES> secret_key {};
-
-    crypto_kx_keypair(public_key.data(), secret_key.data());
-
-    auto client = enet::client::create();
+    auto client = net::client::create();
     if (!client) [[unlikely]] {
         spdlog::critical("Failed to create client: {}", client.error());
+        return EXIT_FAILURE;
+    }
+
+    auto keys = crypto::key_pair::enroll();
+    if (!keys) [[unlikely]] {
+        spdlog::critical("Failed to enroll key pair: {}", keys.error());
         return EXIT_FAILURE;
     }
 
@@ -29,29 +36,46 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    client->service(16);
+
     spdlog::info("Connected. Sending handshake...");
 
-    const auto packet = enet::packet {enet::client_hs_payload(public_key)};
-    client->send(packet);
-    auto hs = client->recv<enet::server_hs_payload>();
-    if (!hs) [[unlikely]] {
-        spdlog::critical("Failed to establish secure connection: {}", hs.error());
+    if (!client->send(net::client_hs_packet {keys->cpublic_key()})) [[unlikely]] {
+        spdlog::critical("Failed to send handshake.");
         return EXIT_FAILURE;
     }
-    const enet::pkey_t s_pub_key {hs->get_payload().public_key};
-    std::array<enet::u8, crypto_kx_SESSIONKEYBYTES> rx {};
-    std::array<enet::u8, crypto_kx_SESSIONKEYBYTES> tx {};
-
-    if (crypto_kx_client_session_keys(rx.data(), tx.data(),
-        public_key.data(), secret_key.data(),
-        s_pub_key.data()) != 0) [[unlikely]] {
-        spdlog::critical("Connection compromised. Aborting...");
-        return EXIT_FAILURE;
+    auto hs = client->recv<net::server_hs_packet>();
+    while (!hs) {
+        hs = client->recv<net::server_hs_packet>();
+        if (!hs) [[unlikely]] {
+            spdlog::warn("Failed to receive handshake: {}", hs.error());
+        }
+    }
+    const auto ss = crypto::secure_session_factory::enroll<crypto::side::CLIENT>(keys.value(), hs->public_key);
+    if (!ss) [[unlikely]] {
+        spdlog::critical("Failed to establish secure session: {}", ss.error());
     }
 
-    spdlog::info("Established secure connection.");
-    [[maybe_unused]]
-    const auto ss = enet::secure_session {std::move(rx), std::move(tx)};
+    const auto cipher = crypto::cipher {std::make_unique<crypto::chacha20poly1305>(ss.value())};
+
+    spdlog::info("Handshake completed.");
+
+    std::string prompt {};
+    while (true) {
+        std::getline(std::cin, prompt);
+        if (prompt == "quit") {break;}
+        const auto message = std::vector<net::u8> {prompt.begin(), prompt.end()};
+        const auto encrypted = cipher.encrypt(message);
+        if (!encrypted) [[unlikely]] {
+            continue;
+        }
+        const auto packet = net::packet<net::packet_type::ENCRYPTED_CHACHA20POLY1305> {encrypted.value()};
+        if (!client->send(packet)) {
+            spdlog::critical("Failed to send packet.");
+        }
+
+        prompt.clear();
+    }
 
     return EXIT_SUCCESS;
 }

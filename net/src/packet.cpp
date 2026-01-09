@@ -4,5 +4,5 @@
 
 #include "../include/packet.h"
 
-namespace enet {
-} // namespace enet
+namespace net {
+} // net

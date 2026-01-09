@@ -10,7 +10,9 @@ add_executable(server main.cpp
 )
 
 target_include_directories(server PRIVATE ../3rdparty
-                                          ../core/include
+        ../net/include
+        ../crypto/include
+        ../serial/include
 )
-target_link_libraries(server PRIVATE core)
+target_link_libraries(server PRIVATE net crypto serial)
 target_compile_options(server PRIVATE -Wall -Wextra -Wpedantic)

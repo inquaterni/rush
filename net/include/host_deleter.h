@@ -7,7 +7,7 @@
 
 #include "enet.h"
 
-namespace enet {
+namespace net {
 
     class host_deleter {
     public:
@@ -18,6 +18,6 @@ namespace enet {
         }
     };
 
-} // namespace enet
+} // net
 
 #endif // HOST_DELETER_H

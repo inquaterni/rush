@@ -9,7 +9,7 @@
 
 #include "guard.h"
 
-namespace enet {
+namespace net {
     std::expected<client, std::string> client::create() noexcept {
 
         auto client_host = host{enet_host_create(nullptr /* create a client host */,

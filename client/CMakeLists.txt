@@ -10,7 +10,9 @@ add_executable(client main.cpp
 )
 
 target_include_directories(client PRIVATE ../3rdparty
-                                          ../core/include
+        ../net/include
+        ../crypto/include
+        ../serial/include
 )
-target_link_libraries(client PRIVATE core)
+target_link_libraries(client PRIVATE net crypto serial)
 target_compile_options(client PRIVATE -Wall -Wextra -Wpedantic)

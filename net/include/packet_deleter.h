@@ -6,7 +6,7 @@
 #define PACKET_DELETER_H
 #include "enet.h"
 
-namespace enet {
+namespace net {
 
 class packet_deleter {
 public:
@@ -18,6 +18,6 @@ public:
 
 };
 
-} // enet
+} // net
 
 #endif //PACKET_DELETER_H

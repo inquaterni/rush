@@ -6,9 +6,8 @@
 
 #define ENET_IMPLEMENTATION
 #include "enet.h"
-#include "sodium.h"
 
-namespace enet {
+namespace net {
     guard::~guard() { enet_deinitialize(); }
     guard &guard::get_instance() noexcept {
         static guard instance {};
@@ -19,15 +18,4 @@ namespace enet {
         // ReSharper disable once CppDFAConstantConditions
         initialized = enet_initialize() == 0;
     }
-} // namespace enet
-
-namespace sodium {
-    guard &guard::get_instance() noexcept {
-        static guard instance{};
-        return instance;
-    }
-    bool guard::is_initialized() noexcept { return initialized; }
-    guard::guard() {
-        initialized = sodium_init() == 0;
-    }
-} // namespace sodium
+} // net

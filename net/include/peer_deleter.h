@@ -6,7 +6,7 @@
 #define PEER_DELETER_H
 #include "enet.h"
 
-namespace enet {
+namespace net {
     class peer_deleter {
     public:
         void operator()(ENetPeer *peer_ptr) const {
@@ -15,6 +15,6 @@ namespace enet {
             }
         }
     };
-}
+} // net
 
 #endif //PEER_DELETER_H
