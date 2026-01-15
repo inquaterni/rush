@@ -4,64 +4,48 @@
 
 #ifndef PACKET_H
 #define PACKET_H
-#include <span>
+#include <variant>
 #include <vector>
 
 #include "../crypto/include/types.h"
-#include "enet.h"
-#include "packet.capnp.h"
+#include "capnp/blob.h"
 #include "types.h"
 
 namespace net {
-
     enum class packet_type: u8 {
-        HANDSHAKE_CLIENT,
-        HANDSHAKE_SERVER,
-        RAW,
-        COMPRESSED_ZSTD,
-        ENCRYPTED_CHACHA20POLY1305,
+        HANDSHAKE,
+        XCHACHA20POLY1305,
     };
 
-    template <packet_type type_t>
-    struct packet {
-        constexpr static packet_type type = type_t;
+    struct generic_packet {
+        packet_type type;
         std::vector<u8> body;
 
-        constexpr packet() = default;
-
-        explicit constexpr packet(const std::vector<u8> &data) noexcept : body(data) {}
-        explicit constexpr packet(std::vector<u8> &&data) noexcept :
-            body(std::forward<std::vector<u8>>(data)) {}
-        explicit constexpr packet(const capnp::Data::Reader &reader) noexcept {
+        explicit constexpr generic_packet(const packet_type type, const std::vector<u8> &data) noexcept :
+            type(type), body(data) {}
+        explicit constexpr generic_packet(const packet_type type, std::vector<u8> &&data) noexcept :
+            type(type), body(std::forward<std::vector<u8>>(data)) {}
+        explicit constexpr generic_packet(const packet_type type, const capnp::Data::Reader &reader) noexcept
+        : type(type) {
             body.assign(reader.begin(), reader.end());
         }
     };
 
-    template <>
-    struct packet<packet_type::HANDSHAKE_CLIENT> {
-        constexpr static auto type = packet_type::HANDSHAKE_CLIENT;
+    struct handshake_packet {
+        constexpr static auto type = packet_type::HANDSHAKE;
         alignas(crypto_kx_PUBLICKEYBYTES) crypto::pkey_t public_key {};
 
-        explicit constexpr packet(const crypto::pkey_t &public_key) noexcept : public_key(public_key) {}
-        explicit constexpr packet(crypto::pkey_t &&public_key) noexcept : public_key(std::forward<crypto::pkey_t>(public_key)) {}
-        explicit constexpr packet(const capnp::Data::Reader &reader) noexcept {
-            std::ranges::copy(reader, public_key.begin());
-        }
-    };
-    template <>
-    struct packet<packet_type::HANDSHAKE_SERVER> {
-        constexpr static auto type = packet_type::HANDSHAKE_SERVER;
-        alignas(crypto_kx_PUBLICKEYBYTES) crypto::pkey_t public_key {};
-
-        explicit constexpr packet(const crypto::pkey_t &public_key) noexcept : public_key(public_key) {}
-        explicit constexpr packet(crypto::pkey_t &&public_key) noexcept : public_key(std::forward<crypto::pkey_t>(public_key)) {}
-        explicit constexpr packet(const capnp::Data::Reader &reader) noexcept {
+        explicit constexpr handshake_packet(const crypto::pkey_t &public_key) noexcept : public_key(public_key) {}
+        explicit constexpr handshake_packet(crypto::pkey_t &&public_key) noexcept : public_key(std::forward<crypto::pkey_t>(public_key)) {}
+        explicit constexpr handshake_packet(const capnp::Data::Reader &reader) noexcept {
             std::ranges::copy(reader, public_key.begin());
         }
     };
 
-    using client_hs_packet = packet<packet_type::HANDSHAKE_CLIENT>;
-    using server_hs_packet = packet<packet_type::HANDSHAKE_SERVER>;
+    using packet = std::variant<generic_packet, handshake_packet>;
+
+    template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+    template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
 } // namespace enet
 

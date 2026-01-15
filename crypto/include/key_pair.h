@@ -8,6 +8,7 @@
 #include <string>
 
 #include "types.h"
+#include "guard.h"
 
 namespace crypto {
 

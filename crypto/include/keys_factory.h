@@ -5,7 +5,7 @@
 #ifndef SECURE_SESSION_FACTORY_H
 #define SECURE_SESSION_FACTORY_H
 #include "key_pair.h"
-#include "secure_session.h"
+#include "session_keys.h"
 
 namespace crypto {
 
@@ -14,10 +14,10 @@ namespace crypto {
         CLIENT
     };
 
-    class secure_session_factory {
+    class keys_factory {
     public:
         template<side s>
-        static constexpr std::expected<secure_session, std::string> enroll(const key_pair &keys, const pkey_t &other_pub_key) {
+        static constexpr std::expected<session_keys, std::string> enroll(const key_pair &keys, const pkey_t &other_pub_key) {
             session_key_t rx;
             session_key_t tx;
 
@@ -25,17 +25,17 @@ namespace crypto {
                 if (crypto_kx_server_session_keys(rx.data(), tx.data(),
                     keys.cpublic_key().data(), keys.csecret_key().data(),
                     other_pub_key.data()) != 0) [[unlikely]] {
-                        return std::unexpected { "Connection compromised." };
+                        return std::unexpected { "Connection is compromised." };
                     }
             } else {
                 if (crypto_kx_client_session_keys(rx.data(), tx.data(),
                     keys.cpublic_key().data(), keys.csecret_key().data(),
                     other_pub_key.data()) != 0) [[unlikely]] {
-                        return std::unexpected { "Connection compromised." };
+                        return std::unexpected { "Connection is compromised." };
                     }
             }
 
-            return secure_session {rx, tx};
+            return session_keys {rx, tx};
         }
         // private:
     };

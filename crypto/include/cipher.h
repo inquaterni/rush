@@ -6,15 +6,12 @@
 #define CIPHER_H
 #include <expected>
 #include <memory>
-#include <sodium/randombytes.h>
 #include <span>
 #include <string>
 #include <vector>
 
-
-#include "chacha20poly1305.h"
-#include "guard.h"
-#include "secure_session.h"
+#include "encryption.h"
+#include "session_keys.h"
 
 namespace crypto {
     class cipher {

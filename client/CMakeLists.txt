@@ -13,6 +13,7 @@ target_include_directories(client PRIVATE ../3rdparty
         ../net/include
         ../crypto/include
         ../serial/include
+        ../pack/include
 )
-target_link_libraries(client PRIVATE net crypto serial)
+target_link_libraries(client PRIVATE net crypto serial pack)
 target_compile_options(client PRIVATE -Wall -Wextra -Wpedantic)

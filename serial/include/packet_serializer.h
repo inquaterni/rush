@@ -10,60 +10,50 @@
 #include <kj/array.h>
 #include <span>
 #include <string>
-
-#include "packet.capnp.h"
+#include "schemas/packet.capnp.h"
+#include "packet.h"
 
 namespace serial {
 
 class packet_serializer {
-    using u8 = unsigned char;
-    static constexpr u8 HANDSHAKE_CLIENT = 0;
-    static constexpr u8 HANDSHAKE_SERVER = 1;
 public:
-    template<typename Tp>
-    static constexpr std::expected<kj::Array<capnp::word>, std::string> serialize(const Tp &packet) {
-        ::capnp::MallocMessageBuilder message;
+    static constexpr kj::Array<capnp::word> serialize(const net::packet &pkt) {
+        capnp::MallocMessageBuilder message;
+        auto root = message.initRoot<Packet>();
 
-        Packet::Builder builder = message.initRoot<Packet>();
-        builder.setType(static_cast<::PacketType>(Tp::type));
-
-        try {
-            if constexpr (static_cast<u8>(Tp::type) == HANDSHAKE_CLIENT) {
-                auto body = builder.getBody().initHandshakeClient();
-                body.setPublicKey(capnp::Data::Reader(packet.public_key.data(), packet.public_key.size()));
-            } else if constexpr (static_cast<u8>(Tp::type) == HANDSHAKE_SERVER) {
-                auto body = builder.getBody().initHandshakeServer();
-                body.setPublicKey(capnp::Data::Reader(packet.public_key.data(), packet.public_key.size()));
-            } else {
-                builder.getBody().setGeneric(capnp::Data::Reader(packet.body.data(), packet.body.size()));
+        std::visit( net::overloaded {
+            [&] (const net::handshake_packet &p) {
+                auto hs = root.initHandshake();
+                auto key_builder = hs.initPublicKey(p.public_key.size());
+                std::ranges::copy(p.public_key, key_builder.begin());
+            },
+            [&] (const net::generic_packet &p) {
+                switch (p.type) {
+                    case net::packet_type::XCHACHA20POLY1305: {
+                        auto data = root.initXchacha20Poly1305(p.body.size());
+                        std::ranges::copy(p.body, data.begin());
+                    } break;
+                    default: assert(0 && "Unreachable");
+                }
             }
+        }, pkt);
 
-            return capnp::messageToFlatArray(message);
-        } catch (const kj::Exception &e) {
-            return std::unexpected { "Exception thrown: " + std::string { e.getDescription().cStr() } };
-        }
+        return capnp::messageToFlatArray(message);
     }
 
-    template<typename Tp>
-    static constexpr std::expected<Tp, std::string> deserialize(const std::span<const capnp::word> &data) {
+    static constexpr std::expected<net::packet, std::string> deserialize(const std::span<const capnp::word> &data) {
         capnp::FlatArrayMessageReader reader{kj::arrayPtr(data.data(), data.size())};
-        const auto packet_reader = reader.getRoot<Packet>();
 
-        if (static_cast<u8>(packet_reader.getType()) != static_cast<u8>(Tp::type)) {
-            return std::unexpected {"Packet types mismatch, got: " + std::to_string(static_cast<u8>(packet_reader.getType())) + ", expected: " + std::to_string(static_cast<u8>(Tp::type)) + "."};
-        }
-        try {
-            if constexpr (static_cast<u8>(Tp::type) == HANDSHAKE_CLIENT) {
-                const auto hs = packet_reader.getBody().getHandshakeClient();
-                return Tp {std::move(hs.getPublicKey())};
-            } else if constexpr (static_cast<u8>(Tp::type) == HANDSHAKE_SERVER) {
-                const auto hs = packet_reader.getBody().getHandshakeServer();
-                return Tp {std::move(hs.getPublicKey())};
+        switch (const auto packet_reader = reader.getRoot<Packet>(); packet_reader.which()) {
+            case Packet::HANDSHAKE: {
+                const auto key = packet_reader.getHandshake();
+                return net::handshake_packet {key.getPublicKey()};
             }
-
-            return Tp {std::move(packet_reader.getBody().getGeneric())};
-        } catch (const kj::Exception &e) {
-            return std::unexpected { "Exception thrown: " + std::string { e.getDescription().cStr() } };
+            case Packet::XCHACHA20_POLY1305: {
+                const auto encrypted = packet_reader.getXchacha20Poly1305();
+                return net::generic_packet {net::packet_type::XCHACHA20POLY1305, encrypted};
+            }
+            default: assert(0 && "Unreachable");
         }
     }
 };

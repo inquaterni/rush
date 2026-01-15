@@ -1,30 +1,42 @@
 cmake_minimum_required(VERSION 3.31)
 project(serial LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_VERBOSE_MAKEFILE ON)
-
-# TODO: remove from system-wise dependencies
-find_package(fmt REQUIRED)
-
-set(RUSH_SERIAL_INCLUDES include/packet.capnp.h include/packet_serializer.h)
-set(RUSH_SERIAL_SRCS src/packet.capnp.c++ src/packet_serializer.cpp)
-
 include(FetchContent)
 FetchContent_Declare(
         capnproto
         GIT_REPOSITORY https://github.com/capnproto/capnproto.git
         GIT_TAG        v1.2.0
         SOURCE_SUBDIR  c++
+        OVERRIDE_FIND_PACKAGE
 )
+
+set(UNITY_BUILD_V ${CMAKE_UNITY_BUILD})
+set(CMAKE_UNITY_BUILD OFF)
+
 FetchContent_MakeAvailable(capnproto)
 
-add_library(serial ${RUSH_SERIAL_INCLUDES} ${RUSH_SERIAL_SRCS})
+set(CMAKE_UNITY_BUILD ${UNITY_BUILD_V})
 
-target_include_directories(serial PRIVATE ../3rdparty)
+CAPNP_GENERATE_CPP(CAPNP_SRCS CAPNP_HDRS schemas/packet.capnp)
+
+set(RUSH_SERIAL_INCLUDES include/packet_serializer.h)
+set(RUSH_SERIAL_SRCS src/packet_serializer.cpp)
+
+add_library(serial
+        ${RUSH_SERIAL_INCLUDES}
+        ${RUSH_SERIAL_SRCS}
+        ${CAPNP_HDRS}
+        ${CAPNP_SRCS}
+)
+
+target_include_directories(serial PUBLIC
+        ../3rdparty
+        include
+        ../net/include
+        ${CMAKE_CURRENT_BINARY_DIR}
+)
 target_link_libraries(serial PRIVATE
-        fmt::fmt
-        CapnProto::capnp
+        net
         CapnProto::kj-async
 )
 target_compile_options(serial PRIVATE -Wall -Wextra -Wpedantic)

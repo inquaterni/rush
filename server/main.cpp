@@ -4,20 +4,21 @@
 #include "../crypto/include/guard.h"
 #include "../net/include/guard.h"
 #include "cipher.h"
+#include "host.h"
 #include "key_pair.h"
 #include "packet.h"
-#include "secure_session_factory.h"
-#include "server.h"
+#include "state.h"
+#include "xchacha20poly1305.h"
 
 #include "spdlog/spdlog.h"
 
-[[noreturn]] int main() {
+int main() {
     // 🚨🚨🚨 SINGLETON DETECTED 🚨🚨🚨
     net::guard::get_instance();
     // 🚨🚨🚨 SINGLETON DETECTED 🚨🚨🚨
     crypto::guard::get_instance();
 
-    auto server = net::server::create(ENET_HOST_ANY, 6969);
+    auto server = net::host::create(ENET_HOST_ANY, 6969);
     if (!server) {
         spdlog::critical("Failed to create server: {}", server.error());
         return EXIT_FAILURE;
@@ -27,44 +28,32 @@
         spdlog::critical("Failed to enroll key pair: {}", keys.error());
         return EXIT_FAILURE;
     }
-
+    server.value()->service();
     spdlog::info("Server is initialized");
 
-    auto hs = server->recv<net::client_hs_packet>(10'000);
-    if (!hs) [[unlikely]] {
-        spdlog::critical("Failed to receive HS packet: {}", hs.error());
-        return EXIT_FAILURE;
-    }
-
-    auto ss = crypto::secure_session_factory::enroll<crypto::side::SERVER>(keys.value(), hs->public_key);
-    if (!ss) [[unlikely]] {
-        spdlog::critical("Failed to create secure connection: {}", ss.error());
-    }
-    if (!server->send(net::server_hs_packet { keys->cpublic_key() })) [[unlikely]] {
-        spdlog::critical("Failed to send HS packet.");
-        return EXIT_FAILURE;
-    }
-    const auto cipher = crypto::cipher {std::make_unique<crypto::chacha20poly1305>(ss.value())};
-
-    spdlog::info("Established secure connection.");
-
     while (true) {
-        const auto encrypted = server->recv<net::packet<net::packet_type::ENCRYPTED_CHACHA20POLY1305>>(16);
-        if (!encrypted) [[unlikely]] {
-            // spdlog::warn("Failed to receive ENCRYPTED_CHACHA20POLY1305 packet: {}.", encrypted.error());
+        auto e = server.value()->recv();
+        if (!e) {
+            // spdlog::critical("Failed to receive message: {}", e.error());
             continue;
         }
 
-        const auto msg = cipher.decrypt(encrypted.value().body);
-        if (!msg) [[unlikely]] {
-            spdlog::warn("Failed to decrypt encrypted packet: {}.", msg.error());
-            continue;
-        }
-
-        const auto str = std::string {msg.value().begin(), msg.value().end()};
-
-        spdlog::info("Received encrypted message: '{}'.", str);
+        std::visit<void>(net::overloaded {
+            [&] (const net::connect_event &ce) {
+                ce.peer()->data = static_cast<void *>(new net::peer_context {*server, net::handshake {*keys}});
+            },
+            [&] (net::receive_event &re) {
+                const auto ctx = static_cast<net::peer_context *>(re.peer()->data);
+                ctx->handle(re);
+            },
+            [&] (net::disconnect_event &de) {
+                if (const auto ctx = static_cast<net::peer_context *>(de.peer()->data)) {
+                    delete ctx;
+                    de.set_peer(nullptr);
+                }
+            }
+        }, e.value());
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
     }
-
     return EXIT_SUCCESS;
 }

@@ -11,17 +11,24 @@ include(FetchContent)
 FetchContent_Declare(Sodium
         GIT_REPOSITORY https://github.com/jedisct1/libsodium
         GIT_TAG stable
+        OVERRIDE_FIND_PACKAGE
 )
 FetchContent_MakeAvailable(Sodium)
 
-set(RUSH_CRYPTO_INCLUDES include/guard.h include/key_pair.h include/types.h include/secure_session.h
+set(RUSH_CRYPTO_INCLUDES
+        include/guard.h
+        include/key_pair.h
+        include/types.h
+        include/session_keys.h
         include/cipher.h
-        include/secure_session_factory.h
-        include/chacha20poly1305.h
+        include/keys_factory.h
+        include/encryption.h
+        include/xchacha20poly1305.h
 )
-set(RUSH_CRYPTO_SRCS src/guard.cpp
+set(RUSH_CRYPTO_SRCS
+        src/guard.cpp
         src/cipher.cpp
-        src/secure_session.cpp
+        src/session_keys.cpp
 )
 
 add_library(crypto ${RUSH_CRYPTO_INCLUDES} ${RUSH_CRYPTO_SRCS})

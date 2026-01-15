@@ -12,6 +12,7 @@
 
 namespace net {
     using u8 = unsigned char;
+    using u16 = unsigned short;
     using u32 = unsigned;
     using packet_ptr = std::unique_ptr<ENetPacket, packet_deleter>;
 } // net
