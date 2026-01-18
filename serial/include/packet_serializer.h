@@ -42,18 +42,22 @@ public:
     }
 
     static constexpr std::expected<net::packet, std::string> deserialize(const std::span<const capnp::word> &data) {
-        capnp::FlatArrayMessageReader reader{kj::arrayPtr(data.data(), data.size())};
+        try {
+            capnp::FlatArrayMessageReader reader{kj::arrayPtr(data.data(), data.size())};
 
-        switch (const auto packet_reader = reader.getRoot<Packet>(); packet_reader.which()) {
-            case Packet::HANDSHAKE: {
-                const auto key = packet_reader.getHandshake();
-                return net::handshake_packet {key.getPublicKey()};
+            switch (const auto packet_reader = reader.getRoot<Packet>(); packet_reader.which()) {
+                case Packet::HANDSHAKE: {
+                    const auto key = packet_reader.getHandshake();
+                    return net::handshake_packet {key.getPublicKey()};
+                }
+                case Packet::XCHACHA20_POLY1305: {
+                    const auto encrypted = packet_reader.getXchacha20Poly1305();
+                    return net::generic_packet {net::packet_type::XCHACHA20POLY1305, encrypted};
+                }
+                default: assert(0 && "Unreachable");
             }
-            case Packet::XCHACHA20_POLY1305: {
-                const auto encrypted = packet_reader.getXchacha20Poly1305();
-                return net::generic_packet {net::packet_type::XCHACHA20POLY1305, encrypted};
-            }
-            default: assert(0 && "Unreachable");
+        } catch (const kj::Exception &e) {
+            return std::unexpected {"While deserializing data exception was thrown: " + std::string {e.getDescription().cStr()}};
         }
     }
 };

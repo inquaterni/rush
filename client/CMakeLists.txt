@@ -7,6 +7,8 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 add_executable(client main.cpp
                       client.cpp
                       client.h
+        guard.cpp
+        guard.h
 )
 
 target_include_directories(client PRIVATE ../3rdparty

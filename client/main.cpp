@@ -6,12 +6,18 @@
 
 #include "../crypto/include/guard.h"
 #include "../net/include/guard.h"
+#include "guard.h"
 #include "../server/state.h"
 #include "cipher.h"
 #include "client.h"
 #include "key_pair.h"
 #include "keys_factory.h"
 #include "xchacha20poly1305.h"
+
+void clear_terminal() {
+    constexpr char clear_seq[] = "\033[2J\033[H";
+    write(STDOUT_FILENO, clear_seq, sizeof(clear_seq) - 1);
+}
 
 int main() {
     // 🚨🚨🚨 SINGLETON DETECTED 🚨🚨🚨
@@ -118,32 +124,86 @@ int main() {
         spdlog::critical("Failed to decompress confirmation: {}", original.error());
         return EXIT_FAILURE;
     }
-    if (!net::is_s_confirm(*original)) [[unlikely]] {
+    if (!net::is_confirm<crypto::side::CLIENT>(*original)) [[unlikely]] {
         spdlog::critical("Confirmation magic was corrupted or wrong: {}", original.error());
         return EXIT_FAILURE;
     }
 
     spdlog::info("Handshake completed.");
+    spdlog::info("Session established. Entering raw mode.");
+    spdlog::default_logger()->flush();
+    std::cout << std::flush;
+    std::cerr << std::flush;
 
-    std::string prompt {};
+    auto &term = term::guard::get_instance();
+    if (!term.enable_raw_mode()) {
+        spdlog::critical("Failed to enable raw terminal mode.");
+        return EXIT_FAILURE;
+    }
+
+    std::jthread network_listener([&] (const std::stop_token &st) {
+        while (!st.stop_requested()) {
+            auto pkt = client->recv();
+
+            if (!pkt) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+
+            const auto *const g_pkt = std::get_if<net::generic_packet>(&*pkt);
+            if (!g_pkt || g_pkt->type != net::packet_type::XCHACHA20POLY1305) continue;
+            const auto dcryp = cipher.decrypt(g_pkt->body);
+            if (!dcryp) {
+                // spdlog::warn("Failed to decrypt incoming packet: {}", dcryp.error());
+                continue;
+            }
+            const auto orig = pack::compressor::decompress(*dcryp);
+            if (!orig) {
+                // spdlog::warn("Failed to decompress incoming packet: {}", orig.error());
+                continue;
+            }
+
+            if (!orig->empty()) {
+                // clear_terminal();
+                write(STDOUT_FILENO, orig->data(), orig->size());
+            }
+        }
+    });
+
+    std::array<char, 1024 * 4> buffer {};
+    constexpr auto fds_size = 1;
+    std::array<pollfd, fds_size> fds{};
+    fds[0].fd = STDIN_FILENO;
+    fds[0].events = POLLIN;
     while (true) {
-        std::getline(std::cin, prompt);
-        if (prompt == "quit") {break;}
-        std::cout << "Message length: " << prompt.length() << std::endl;
-        const auto message = std::vector<net::u8> {prompt.begin(), prompt.end()};
-        const auto c = pack::compressor::compress(message);
-        if (!c) [[unlikely]] {
-            continue;
-        }
-        const auto e = cipher.encrypt(*c);
-        if (!e) [[unlikely]] {
-            continue;
-        }
-        if (!client->send(net::generic_packet {net::packet_type::XCHACHA20POLY1305, e.value()})) {
-            spdlog::critical("Failed to send packet.");
+        if (auto ret = poll(fds.data(), fds_size, 1); ret < 0) [[unlikely]] {
+            spdlog::error("Poll error: {}", ret);
+            break;
         }
 
-        prompt.clear();
+        if (fds[0].revents & POLLIN) {
+            if (const auto n = read(STDIN_FILENO, buffer.data(), buffer.size()); n > 0) {
+                if (n == 1 && buffer[0] == 0x04) {
+                    term.disable_raw_mode();
+                    spdlog::info("Ctrl+D pressed. Exiting client ...");
+                    break;
+                }
+                const auto data = std::vector<net::u8>  {buffer.data(), buffer.data() + n};
+                const auto cmprsd = pack::compressor::compress(data);
+                if (!cmprsd) [[unlikely]] {
+                    // spdlog::error("Failed to compress data: {}", cmprsd.error());
+                    continue;
+                }
+                const auto enc = cipher.encrypt(*cmprsd);
+                if (!enc) [[unlikely]] {
+                    // spdlog::error("Failed to encrypt data: {}", enc.error());
+                    continue;
+                }
+                if (!client->send(net::generic_packet {net::packet_type::XCHACHA20POLY1305, *enc})) {
+                    // spdlog::error("Failed to send data.");
+                }
+            } else if (n == 0) break;
+        }
     }
 
     return EXIT_SUCCESS;
