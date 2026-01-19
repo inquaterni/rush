@@ -14,23 +14,24 @@
 namespace net {
     enum class packet_type: u8 {
         HANDSHAKE,
-        XCHACHA20POLY1305,
+        STDIN,
+        SIGNAL,
+        RESIZE
     };
 
-    struct generic_packet {
+    struct shell_message {
         packet_type type;
-        std::vector<u8> body;
+        std::vector<u8> bytes;
 
-        explicit constexpr generic_packet(const packet_type type, const std::vector<u8> &data) noexcept :
-            type(type), body(data) {}
-        explicit constexpr generic_packet(const packet_type type, std::vector<u8> &&data) noexcept :
-            type(type), body(std::forward<std::vector<u8>>(data)) {}
-        explicit constexpr generic_packet(const packet_type type, const capnp::Data::Reader &reader) noexcept
+        explicit constexpr shell_message(const packet_type type, const std::vector<u8> &data) noexcept :
+            type(type), bytes(data) {}
+        explicit constexpr shell_message(const packet_type type, std::vector<u8> &&data) noexcept :
+            type(type), bytes(std::forward<std::vector<u8>>(data)) {}
+        explicit constexpr shell_message(const packet_type type, const capnp::Data::Reader &reader) noexcept
         : type(type) {
-            body.assign(reader.begin(), reader.end());
+            bytes.assign(reader.begin(), reader.end());
         }
     };
-
     struct handshake_packet {
         constexpr static auto type = packet_type::HANDSHAKE;
         alignas(crypto_kx_PUBLICKEYBYTES) crypto::pkey_t public_key {};
@@ -41,8 +42,15 @@ namespace net {
             std::ranges::copy(reader, public_key.begin());
         }
     };
+    struct resize_packet {
+        constexpr static auto type = packet_type::RESIZE;
+        winsize ws {};
 
-    using packet = std::variant<generic_packet, handshake_packet>;
+        explicit constexpr resize_packet(const winsize ws) noexcept : ws(ws) {}
+        explicit constexpr resize_packet(winsize &&ws) noexcept : ws(std::forward<winsize>(ws)) {}
+    };
+
+    using packet = std::variant<shell_message, handshake_packet, resize_packet>;
 
     template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
     template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;

@@ -11,6 +11,7 @@
 
 #include "../net/include/host_deleter.h"
 #include "../net/include/peer_deleter.h"
+#include "cipher.h"
 #include "concurrentqueue.h"
 #include "packet.h"
 #include "packet_serializer.h"
@@ -29,8 +30,11 @@ namespace net {
         [[nodiscard]]
         constexpr bool send(const packet &pkt, u8 channel_id = 0,
                   u32 flags = ENET_PACKET_FLAG_NO_ALLOCATE | ENET_PACKET_FLAG_RELIABLE) const noexcept;
+        [[nodiscard]]
+        constexpr bool send(const std::vector<u8> &pkt, u8 channel_id = 0,
+                  u32 flags = ENET_PACKET_FLAG_NO_ALLOCATE | ENET_PACKET_FLAG_RELIABLE) const noexcept;
         constexpr void service(int timeout = 1000);
-        constexpr std::expected<packet, std::string> recv();
+        constexpr std::expected<packet, std::string> recv(const crypto::cipher *cipher = nullptr) noexcept;
 
     private:
         host host_;
@@ -40,7 +44,7 @@ namespace net {
 
         explicit client(host && /* client host */) noexcept;
     };
-    constexpr std::expected<packet, std::string> client::recv() {
+    constexpr std::expected<packet, std::string> client::recv(const crypto::cipher *cipher) noexcept {
         ENetEvent event;
         if (!events.try_dequeue(event)) {
             return std::unexpected { "No events found." };
@@ -49,9 +53,17 @@ namespace net {
         switch (event.type) {
             case ENET_EVENT_TYPE_RECEIVE: {
                 if (!event.packet) return std::unexpected("No data received.");
-                const auto word_ptr = reinterpret_cast<const capnp::word *>(event.packet->data);
-                const std::size_t word_size = event.packet->dataLength / sizeof(capnp::word);
-                return serial::packet_serializer::deserialize(std::span {word_ptr, word_size});
+                if (!cipher) {
+                    const auto word_ptr = reinterpret_cast<const capnp::word *>(event.packet->data);
+                    const std::size_t word_size = event.packet->dataLength / sizeof(capnp::word);
+                    return serial::packet_serializer::deserialize(std::span {word_ptr, word_size});
+                } else {
+                    const auto decrypted = cipher->decrypt(std::span {reinterpret_cast<const u8 *>(event.packet->data), event.packet->dataLength});
+                    if (!decrypted) {
+                        return std::unexpected("Failed to decrypt packet: " + decrypted.error());
+                    }
+                    return serial::packet_serializer::deserialize(u8_vector_to_word_span(*decrypted));
+                }
             }
             default: return std::unexpected("Unexpected event type.");
         }
@@ -67,6 +79,17 @@ namespace net {
         if (!p) {
             return false;
         }
+        enet_peer_send(server.get(), channel_id, p);
+        enet_host_flush(host_.get());
+
+        return true;
+    }
+    constexpr bool client::send(const std::vector<u8> &pkt, const u8 channel_id, const u32 flags) const noexcept {
+        if (!server) {
+            return false;
+        }
+        const auto p = enet_packet_create(pkt.data(), pkt.size(), flags);
+        if (!p) return false;
         enet_peer_send(server.get(), channel_id, p);
         enet_host_flush(host_.get());
 

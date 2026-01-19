@@ -27,14 +27,25 @@ public:
                 auto key_builder = hs.initPublicKey(p.public_key.size());
                 std::ranges::copy(p.public_key, key_builder.begin());
             },
-            [&] (const net::generic_packet &p) {
+            [&] (const net::shell_message &p) {
                 switch (p.type) {
-                    case net::packet_type::XCHACHA20POLY1305: {
-                        auto data = root.initXchacha20Poly1305(p.body.size());
-                        std::ranges::copy(p.body, data.begin());
+                    case net::packet_type::STDIN: {
+                        auto data = root.initStdin(p.bytes.size());
+                        std::ranges::copy(p.bytes, data.begin());
+                    } break;
+                    case net::packet_type::SIGNAL: {
+                        auto data = root.initSignal(p.bytes.size());
+                        std::ranges::copy(p.bytes, data.begin());
                     } break;
                     default: assert(0 && "Unreachable");
                 }
+            },
+            [&] (const net::resize_packet &p) {
+                auto ws = root.initResize();
+                ws.setWsRow(p.ws.ws_row);
+                ws.setWsCol(p.ws.ws_col);
+                ws.setWsXpixel(p.ws.ws_xpixel);
+                ws.setWsYpixel(p.ws.ws_ypixel);
             }
         }, pkt);
 
@@ -50,9 +61,23 @@ public:
                     const auto key = packet_reader.getHandshake();
                     return net::handshake_packet {key.getPublicKey()};
                 }
-                case Packet::XCHACHA20_POLY1305: {
-                    const auto encrypted = packet_reader.getXchacha20Poly1305();
-                    return net::generic_packet {net::packet_type::XCHACHA20POLY1305, encrypted};
+                case Packet::STDIN: {
+                    const auto bytes = packet_reader.getStdin();
+                    return net::shell_message {net::packet_type::STDIN, bytes};
+                }
+                case Packet::SIGNAL: {
+                    const auto bytes = packet_reader.getSignal();
+                    return net::shell_message {net::packet_type::SIGNAL, bytes};
+                }
+                case Packet::RESIZE: {
+                    const auto ws_reader = packet_reader.getResize();
+                    const auto ws = winsize {
+                        .ws_row = ws_reader.getWsRow(),
+                        .ws_col = ws_reader.getWsCol(),
+                        .ws_xpixel = ws_reader.getWsXpixel(),
+                        .ws_ypixel = ws_reader.getWsYpixel()
+                    };
+                    return net::resize_packet {ws};
                 }
                 default: assert(0 && "Unreachable");
             }

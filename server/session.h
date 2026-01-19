@@ -80,12 +80,17 @@ public:
             if (slave_fd == -1) {
                 std::exit(1);
             }
+
+            ioctl(slave_fd, TIOCSCTTY, 0);
+
             termios term{};
             if (tcgetattr(slave_fd, &term) == 0) {
                 cfmakeraw(&term);
+                term.c_iflag |= ICRNL | IUTF8;
                 term.c_oflag |= OPOST | ONLCR;
+                term.c_lflag |= ECHO | ICANON | ISIG | IEXTEN;
 
-                winsize ws{ .ws_row = 24, .ws_col = 80 };
+                winsize ws{ .ws_row = 24, .ws_col = 80, .ws_xpixel = 0, .ws_ypixel = 0 };
                 ioctl(slave_fd, TIOCSWINSZ, &ws);
                 tcsetattr(slave_fd, TCSANOW, &term);
             }
@@ -96,7 +101,8 @@ public:
 
             if (slave_fd > STDERR_FILENO) close(slave_fd);
 
-            execlp(shell.data(), shell.data(), nullptr);
+            const char* env[] = { "TERM=xterm-256color", nullptr };
+            execle(shell.data(), "-l", nullptr, env);
 
             std::exit(1);
         }

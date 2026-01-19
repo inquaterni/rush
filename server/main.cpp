@@ -37,7 +37,6 @@ int main() {
     server.value()->service(16);
     spdlog::info("Server is initialized");
 
-    // setenv("TERM", "xterm-256color", 1);
     asio::steady_timer timer(io_ctx);
 
     std::function<void()> app_tick = [&] {

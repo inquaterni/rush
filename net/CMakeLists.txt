@@ -15,6 +15,7 @@ set(RUSH_NET_INCLUDES
         include/peer_deleter.h
         include/types.h
         include/event.h
+        include/signals.hpp
 )
 set(RUSH_NET_SRCS
         src/guard.cpp

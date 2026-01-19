@@ -37,6 +37,12 @@ namespace net {
         constexpr bool send(ENetPeer *peer, const packet &pkt, u8 channel_id = 0,
                             u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE,
                             bool flush = true) const;
+        constexpr bool send(ENetPeer *peer, std::span<const u8> data, u8 channel_id = 0,
+            u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE,
+            bool flush = true) const;
+        constexpr bool send(ENetPeer *peer, const std::vector<u8> &data, u8 channel_id = 0,
+            u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE,
+            bool flush = true) const;
         constexpr void disconnect(ENetPeer *peer) const noexcept;
 
     private:
@@ -132,6 +138,35 @@ namespace net {
         if (!enet_pkt) [[unlikely]] {
             return false;
         }
+        enet_peer_send(peer, channel_id, enet_pkt);
+        if (flush) [[likely]]
+            enet_host_flush(m_host.get());
+
+        return true;
+    }
+    constexpr bool host::send(ENetPeer *peer, const std::span<const u8> data, const u8 channel_id, const u32 flags,
+                              const bool flush) const {
+        std::scoped_lock lock{m_mutex};
+        if (!m_host) [[unlikely]]
+            return false;
+
+        const auto enet_pkt = enet_packet_create(data.data(), data.size() * sizeof(u8), flags);
+        if (!enet_pkt) [[unlikely]]
+            return false;
+        enet_peer_send(peer, channel_id, enet_pkt);
+        if (flush) [[likely]]
+            enet_host_flush(m_host.get());
+
+        return true;
+    }
+    constexpr bool host::send(ENetPeer *peer, const std::vector<u8> &data, u8 channel_id, u32 flags, bool flush) const {
+        std::scoped_lock lock{m_mutex};
+        if (!m_host) [[unlikely]]
+            return false;
+
+        const auto enet_pkt = enet_packet_create(data.data(), data.size() * sizeof(u8), flags);
+        if (!enet_pkt) [[unlikely]]
+            return false;
         enet_peer_send(peer, channel_id, enet_pkt);
         if (flush) [[likely]]
             enet_host_flush(m_host.get());

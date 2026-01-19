@@ -15,6 +15,8 @@
 #include "keys_factory.h"
 #include "packet_serializer.h"
 #include "session.h"
+#include "signals.hpp"
+#include "state.h"
 #include "xchacha20poly1305.h"
 
 namespace net {
@@ -126,7 +128,7 @@ namespace net {
         connected& operator=(connected&&) = default;
 
         static constexpr void pump_pty_to_network(const std::stop_token &st, const pty::session &session,
-                                                  connection_data *data) noexcept;
+                                                  const connection_data *data) noexcept;
 
         [[nodiscard]]
         auto handle(const std::shared_ptr<host> &h, const receive_event &e, const pty::session &session) const noexcept;
@@ -173,9 +175,7 @@ namespace net {
         if (std::chrono::steady_clock::now() - hs_start_point > max_handshake_duration) {
             return transition::disconnect("Timeout reached.");
         }
-        const auto words = std::span(reinterpret_cast<const capnp::word *>(e.payload().data()),
-                                     e.payload().size() / sizeof(capnp::word));
-        const auto pkt = serial::packet_serializer::deserialize(words);
+        const auto pkt = serial::packet_serializer::deserialize(u8_span_to_word_span(e.payload()));
         if (!pkt) [[unlikely]] {
             if (retries++ > max_retries) {
                 return transition::disconnect("Maximum retries exceeded.");
@@ -211,37 +211,28 @@ namespace net {
         if (std::chrono::steady_clock::now() - confirm_start_point > max_confirmation_duration) {
             return transition::disconnect("Timeout reached.");
         }
-
-        const auto words = std::span(reinterpret_cast<const capnp::word *>(e.payload().data()),
-                                     e.payload().size() / sizeof(capnp::word));
-        const auto pkt = serial::packet_serializer::deserialize(words);
-        if (!pkt) [[unlikely]] {
-            return transition::keep();
-        }
-        const auto *const g_pkt = std::get_if<generic_packet>(&*pkt);
-        if (!g_pkt || g_pkt->type != packet_type::XCHACHA20POLY1305) [[unlikely]] {
-            return transition::keep();
-        }
-        const auto decrypted = cipher_.decrypt(g_pkt->body);
+        const auto decrypted = cipher_.decrypt(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
         }
-        const auto original = pack::compressor::decompress(*decrypted);
-        if (!original) [[unlikely]] {
+        const auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(*decrypted));
+        if (!pkt) [[unlikely]] {
             return transition::keep();
         }
-        if (!is_confirm<crypto::side::SERVER>(*original)) {
+        const auto *const sh_msg = std::get_if<shell_message>(&*pkt);
+        if (!sh_msg || sh_msg->type != packet_type::STDIN) [[unlikely]] {
             return transition::keep();
         }
-        const auto compressed = pack::compressor::compress(std::span{s_confirm_magic, sizeof(s_confirm_magic)});
-        if (!compressed) [[unlikely]] {
+        if (!is_confirm<crypto::side::SERVER>(sh_msg->bytes)) {
             return transition::keep();
         }
-        const auto encrypted = cipher_.encrypt(*compressed);
+        const auto s_pkt = shell_message{packet_type::STDIN, std::vector(s_confirm_magic, s_confirm_magic + sizeof(s_confirm_magic))};
+        const auto words = serial::packet_serializer::serialize(s_pkt);
+        const auto encrypted = cipher_.encrypt(capnp_array_to_span(words));
         if (!encrypted) [[unlikely]] {
             return transition::keep();
         }
-        if (!h->send(e.peer(), generic_packet{packet_type::XCHACHA20POLY1305, *encrypted})) {
+        if (!h->send(e.peer(), *encrypted)) {
             return transition::keep();
         }
 
@@ -249,36 +240,46 @@ namespace net {
     }
     inline auto connected::handle(const std::shared_ptr<host> & /* h */, const receive_event &e,
                                   const pty::session &session) const noexcept {
-        const auto words = std::span(reinterpret_cast<const capnp::word *>(e.payload().data()),
-                                     e.payload().size() / sizeof(capnp::word));
-        const auto pkt = serial::packet_serializer::deserialize(words);
-        if (!pkt) [[unlikely]] {
-            return transition::keep();
-        }
-        const auto *const g_pkt = std::get_if<generic_packet>(&*pkt);
-        if (!g_pkt || g_pkt->type != packet_type::XCHACHA20POLY1305) [[unlikely]] {
-            return transition::keep();
-        }
-        const auto decrypted = data_->cipher.decrypt(g_pkt->body);
+        const auto decrypted = data_->cipher.decrypt(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
         }
-        const auto original = pack::compressor::decompress(*decrypted);
-        if (!original) [[unlikely]] {
+        const auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(*decrypted));
+        if (!pkt) [[unlikely]] {
             return transition::keep();
         }
 
-        if (!original->empty()) {
-            if (!session.write(*original)) {
-                spdlog::error("Failed to write.");
-                return transition::keep();
-            }
-        }
+        return std::visit(overloaded {
+            [&] (const shell_message &sh_msg) {
+                switch (sh_msg.type) {
+                    case packet_type::STDIN: {
+                        if (!sh_msg.bytes.empty()) {
+                            if (!session.write(sh_msg.bytes)) {
+                                spdlog::error("Failed to write.");
+                                return transition::keep();
+                            }
+                        }
+                    } break;
+                    case packet_type::SIGNAL: {
+                        const auto str = std::string_view {reinterpret_cast<const char *>(sh_msg.bytes.data()), sh_msg.bytes.size()};
+                        ioctl(session.fd(), TIOCSIG, name2sig(str));
+                    } break;
+                    default: return transition::keep();
+                }
 
-        return transition::keep();
+                return transition::keep();
+
+            },
+            [&] (const resize_packet &win_resize) {
+                ioctl(session.fd(), TIOCSWINSZ, &win_resize.ws);
+                return transition::keep();
+            },
+            [&] (auto &&) {return transition::keep();}
+        }, *pkt);
     }
     constexpr void connected::pump_pty_to_network(const std::stop_token &st,
-                                                  const pty::session &session, connection_data *data) noexcept {
+                                                  const pty::session &session,
+                                                  const connection_data *data) noexcept {
         std::array<char, 4096> buffer {};
         pollfd pfd {};
         pfd.fd = session.fd();
@@ -293,14 +294,13 @@ namespace net {
                 const long unsigned int n = read(session.fd(), buffer.data(), buffer.size());
                 if (n <= 0) break;
                 if (n > buffer.max_size()) continue;
-                const auto raw = std::span<const u8> {reinterpret_cast<u8 *>(buffer.data()), n};
-                const auto compressed = pack::compressor::compress(raw);
-                if (!compressed) [[unlikely]] continue;
-                const auto encrypted = data->cipher.encrypt(*compressed);
+                const auto pkt = shell_message{packet_type::STDIN, std::vector<u8>(buffer.begin(), buffer.begin() + n)};
+                const auto words = serial::packet_serializer::serialize(pkt);
+                const auto encrypted = data->cipher.encrypt(capnp_array_to_span(words));
                 if (!encrypted) [[unlikely]] continue;
                 if (!data->host_) break;
                 if (!data->peer) break;
-                data->host_->send(data->peer, generic_packet{packet_type::XCHACHA20POLY1305, *encrypted});
+                data->host_->send(data->peer, *encrypted);
             }
         }
     }
