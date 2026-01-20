@@ -9,11 +9,11 @@
 #include <utility>
 #include <variant>
 
-#include "../pack/include/compressor.h"
 #include "cipher.h"
 #include "host.h"
 #include "keys_factory.h"
 #include "packet_serializer.h"
+#include "pty_pumper.h"
 #include "session.h"
 #include "signals.hpp"
 #include "state.h"
@@ -22,10 +22,14 @@
 namespace net {
     using namespace std::chrono_literals;
 
+    struct keep_state_t {};
     struct disconnect_t {
         std::string reason {};
     };
-    struct keep_state_t {};
+    struct establish_t {
+        crypto::cipher cipher;
+    };
+    struct activate_session_t {};
     class state;
     class handshake;
     class conn_confirm;
@@ -81,7 +85,7 @@ namespace net {
         constexpr explicit handshake(crypto::key_pair &pair) noexcept
         : pair(pair) {}
 
-        auto handle(const std::shared_ptr<host> &h, receive_event &e, const pty::session &) noexcept;
+        auto handle(const std::shared_ptr<host> &h, receive_event &e) noexcept;
 
     private:
         crypto::key_pair &pair;
@@ -91,54 +95,28 @@ namespace net {
     class conn_confirm final : public state {
     public:
         inline static constinit auto max_confirmation_duration = 250ms;
+        constexpr conn_confirm() = default;
 
-        conn_confirm(conn_confirm&&) = default;
-        conn_confirm& operator=(conn_confirm&&) = default;
+        constexpr conn_confirm(conn_confirm&&) = default;
+        constexpr conn_confirm& operator=(conn_confirm&&) = default;
 
-        constexpr explicit conn_confirm(crypto::cipher &&c) noexcept
-        : cipher_(std::forward<crypto::cipher>(c)) {}
-
-        constexpr explicit conn_confirm(std::unique_ptr<crypto::encryption> &&encryptor) noexcept
-        : cipher_(std::forward<std::unique_ptr<crypto::encryption>>(encryptor)) {}
-
-        auto handle(const std::shared_ptr<host> &h, receive_event &e, const pty::session &) noexcept;
+        auto handle(const std::shared_ptr<host> &h, receive_event &e, const crypto::cipher &c) const noexcept;
     private:
         std::chrono::steady_clock::time_point confirm_start_point {std::chrono::steady_clock::now()};
-        crypto::cipher cipher_;
-    };
-
-    struct connection_data {
-        crypto::cipher cipher;
-        std::shared_ptr<host> host_;
-        ENetPeer* peer;
-
-        connection_data(crypto::cipher&& c, std::shared_ptr<host> h, ENetPeer* p)
-            : cipher(std::move(c)), host_(std::move(h)), peer(p) {}
     };
     class connected final : public state {
     public:
-        constexpr explicit connected(crypto::cipher &&c, const std::shared_ptr<host>& h, ENetPeer *peer, const pty::session &session) noexcept
-        : data_(std::make_unique<connection_data>(std::forward<crypto::cipher>(c), h, peer)) {
-            pump = std::jthread([data = data_.get(), &session] (const std::stop_token &st) {
-                pump_pty_to_network(st, session, data);
-            });
-        }
+        constexpr connected() = default;
 
-        connected(connected&&) = default;
-        connected& operator=(connected&&) = default;
-
-        static constexpr void pump_pty_to_network(const std::stop_token &st, const pty::session &session,
-                                                  const connection_data *data) noexcept;
+        constexpr connected(connected&&) = default;
+        constexpr connected& operator=(connected&&) = default;
 
         [[nodiscard]]
-        auto handle(const std::shared_ptr<host> &h, const receive_event &e, const pty::session &session) const noexcept;
-    private:
-        std::unique_ptr<connection_data> data_;
-        std::jthread pump;
+        auto handle(const std::shared_ptr<host> &h, const receive_event &e, const crypto::cipher &c, const pty::session &session) const noexcept;
     };
 
     using state_t = std::variant<handshake, conn_confirm, connected>;
-    using transition_t = std::variant<keep_state_t, disconnect_t, state_t>;
+    using transition_t = std::variant<keep_state_t, disconnect_t, establish_t, activate_session_t, state_t>;
 
     struct transition {
         static constexpr transition_t keep() noexcept { return {keep_state_t {}}; }
@@ -146,11 +124,18 @@ namespace net {
         static constexpr transition_t disconnect(std::string reason) noexcept {
             return {disconnect_t{std::move(reason)}};
         }
+        static constexpr transition_t establish(crypto::cipher cipher) noexcept {
+            return {establish_t{std::move(cipher)}};
+        }
+        static constexpr transition_t establish(std::unique_ptr<crypto::encryption> encryptor) noexcept {
+            return {establish_t{crypto::cipher(std::move(encryptor))}};
+        }
+        static constexpr transition_t activate_session() noexcept { return {activate_session_t{}}; }
         template <class T>
         requires std::derived_from<std::remove_cvref_t<T>, state> &&
             std::constructible_from<state_t, std::remove_cvref_t<T>>
-        static constexpr transition_t to(T&& new_state) noexcept {
-            return state_t(std::forward<T>(new_state));
+        static constexpr transition_t to(T new_state) noexcept {
+            return state_t(std::move(new_state));
         }
     };
 
@@ -158,20 +143,25 @@ namespace net {
     public:
         using host_ptr = std::shared_ptr<host>;
 
-        peer_context(host_ptr host, state_t &&state, pty::session &&s) noexcept
-        : m_host(std::move(host)),
-        state(std::forward<state_t>(state)),
-        pty(std::forward<pty::session>(s)) {}
+        constexpr peer_context(host_ptr host, state_t &&state, asio::io_context &ctx) noexcept
+        : m_ctx(ctx), m_host(std::move(host)), state(std::forward<state_t>(state)) {}
         constexpr void handle(receive_event &e) noexcept;
 
+        constexpr ~peer_context() noexcept {
+            if (pump) pump->stop();
+        }
+
     private:
+        asio::io_context &m_ctx;
         host_ptr m_host;
         state_t state;
-        pty::session pty;
+        std::shared_ptr<crypto::cipher> cipher {nullptr};
+        std::unique_ptr<pty::session> session {nullptr};
+        std::shared_ptr<pty_pumper> pump {nullptr};
     };
 
 
-    inline auto handshake::handle(const std::shared_ptr<host> &h, receive_event &e, const pty::session &) noexcept {
+    inline auto handshake::handle(const std::shared_ptr<host> &h, receive_event &e) noexcept {
         if (std::chrono::steady_clock::now() - hs_start_point > max_handshake_duration) {
             return transition::disconnect("Timeout reached.");
         }
@@ -205,13 +195,14 @@ namespace net {
         }
 
         auto encryptor = std::make_unique<crypto::xchacha20poly1305>(*sk);
-        return transition::to(conn_confirm{std::move(encryptor)});
+        return transition::establish(crypto::cipher(std::move(encryptor)));
     }
-    inline auto conn_confirm::handle(const std::shared_ptr<host> &h, receive_event &e, const pty::session &pty) noexcept {
+    inline auto conn_confirm::handle(const std::shared_ptr<host> &h, receive_event &e,
+                                     const crypto::cipher &c) const noexcept {
         if (std::chrono::steady_clock::now() - confirm_start_point > max_confirmation_duration) {
             return transition::disconnect("Timeout reached.");
         }
-        const auto decrypted = cipher_.decrypt(e.payload());
+        const auto decrypted = c.decrypt(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
         }
@@ -226,9 +217,10 @@ namespace net {
         if (!is_confirm<crypto::side::SERVER>(sh_msg->bytes)) {
             return transition::keep();
         }
-        const auto s_pkt = shell_message{packet_type::STDIN, std::vector(s_confirm_magic, s_confirm_magic + sizeof(s_confirm_magic))};
+        const auto s_pkt = shell_message{packet_type::STDIN,
+                                         std::vector(s_confirm_magic, s_confirm_magic + sizeof(s_confirm_magic))};
         const auto words = serial::packet_serializer::serialize(s_pkt);
-        const auto encrypted = cipher_.encrypt(capnp_array_to_span(words));
+        const auto encrypted = c.encrypt(capnp_array_to_span(words));
         if (!encrypted) [[unlikely]] {
             return transition::keep();
         }
@@ -236,11 +228,13 @@ namespace net {
             return transition::keep();
         }
 
-        return transition::to(connected{std::move(cipher_), h, e.peer(), pty});
+        return transition::activate_session();
     }
+    // ReSharper disable once CppMemberFunctionMayBeStatic
     inline auto connected::handle(const std::shared_ptr<host> & /* h */, const receive_event &e,
+                                  const crypto::cipher &c,
                                   const pty::session &session) const noexcept {
-        const auto decrypted = data_->cipher.decrypt(e.payload());
+        const auto decrypted = c.decrypt(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
         }
@@ -250,7 +244,7 @@ namespace net {
         }
 
         return std::visit(overloaded {
-            [&] (const shell_message &sh_msg) {
+            [&] (const shell_message &sh_msg) constexpr  {
                 switch (sh_msg.type) {
                     case packet_type::STDIN: {
                         if (!sh_msg.bytes.empty()) {
@@ -270,57 +264,62 @@ namespace net {
                 return transition::keep();
 
             },
-            [&] (const resize_packet &win_resize) {
+            [&] (const resize_packet &win_resize) constexpr {
                 ioctl(session.fd(), TIOCSWINSZ, &win_resize.ws);
                 return transition::keep();
             },
-            [&] (auto &&) {return transition::keep();}
+            [&] (auto &&) constexpr {return transition::keep();}
         }, *pkt);
-    }
-    constexpr void connected::pump_pty_to_network(const std::stop_token &st,
-                                                  const pty::session &session,
-                                                  const connection_data *data) noexcept {
-        std::array<char, 4096> buffer {};
-        pollfd pfd {};
-        pfd.fd = session.fd();
-        pfd.events = POLLIN;
-
-        while (!st.stop_requested()) {
-            const int ret = poll(&pfd, 1, 16);
-            if (ret < 0) break;
-            if (ret == 0) continue;
-
-            if (pfd.revents & POLLIN) {
-                const long unsigned int n = read(session.fd(), buffer.data(), buffer.size());
-                if (n <= 0) break;
-                if (n > buffer.max_size()) continue;
-                const auto pkt = shell_message{packet_type::STDIN, std::vector<u8>(buffer.begin(), buffer.begin() + n)};
-                const auto words = serial::packet_serializer::serialize(pkt);
-                const auto encrypted = data->cipher.encrypt(capnp_array_to_span(words));
-                if (!encrypted) [[unlikely]] continue;
-                if (!data->host_) break;
-                if (!data->peer) break;
-                data->host_->send(data->peer, *encrypted);
-            }
-        }
     }
     constexpr void peer_context::handle(receive_event &e) noexcept {
         auto transition = std::visit<transition_t>(overloaded {
-            [&] (auto &s) constexpr {
-                return s.handle(m_host, e, this->pty);
+            [&] (const connected &s) constexpr {
+                return s.dispatch(m_host, e, *cipher, *session);
+            },
+            [&] (const conn_confirm &s) {
+                return s.dispatch(m_host, e, *cipher);
+            },
+            [&] (handshake &s) constexpr {
+                return s.dispatch(m_host, e);
             }
         }, state);
 
-        std::visit<void>(overloaded {
+        std::visit(overloaded {
             [] (keep_state_t) constexpr {},
-                [&] (const disconnect_t &) constexpr {
-                    if (!this->m_host) [[unlikely]] {
-                        return;
-                    }
-                    // TODO: Send disconnect reason back to client
-                    // this->m_host->send();
-                    this->m_host->disconnect(e.peer());
-                },
+            [&] (const disconnect_t &) constexpr {
+                if (!this->m_host) [[unlikely]] {
+                    return;
+                }
+                // TODO: Send disconnect reason back to client
+                // if (!d.reason.empty()) [[likely]] {
+                //     const auto pkt = shell_message {packet_type::STDIN, std::vector<u8>(d.reason.begin(), d.reason.end())};
+                //     const auto words = serial::packet_serializer::serialize(pkt);
+                //     const auto encrypted = cipher
+                // // this->m_host->send();
+                // }
+                this->m_host->disconnect(e.peer());
+            },
+            [&] (establish_t &&est) constexpr {
+                this->cipher = std::make_shared<crypto::cipher>(std::move(est.cipher));
+                this->state = conn_confirm {};
+            },
+            [&] (activate_session_t &&) constexpr {
+                auto exp_sess = pty::session::create_unique("/bin/fish");
+                if (!exp_sess) [[unlikely]] {
+                    spdlog::critical("Failed to create pty session: {}", exp_sess.error());
+                    return;
+                }
+                this->session = std::move(*exp_sess);
+                this->pump = std::make_shared<pty_pumper>(
+                    this->m_ctx,
+                    this->session->fd(),
+                    this->m_host.get(),
+                    e.peer(),
+                    *this->cipher
+                    );
+                this->pump->start();
+                this->state = connected {};
+            },
             [&] (state_t &&new_state) constexpr {
                 this->state = std::forward<state_t>(new_state);
             }

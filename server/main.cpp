@@ -24,9 +24,9 @@ int main() {
     asio::signal_set signals(io_ctx, SIGINT, SIGTERM);
     signals.async_wait([&](auto, auto){ io_ctx.stop(); });
 
-    auto server = net::host::create(ENET_HOST_ANY, 6969, io_ctx);
-    if (!server) {
-        spdlog::critical("Failed to create server: {}", server.error());
+    auto host = net::host::create(ENET_HOST_ANY, 6969, io_ctx);
+    if (!host) {
+        spdlog::critical("Failed to create server: {}", host.error());
         return EXIT_FAILURE;
     }
     auto keys = crypto::key_pair::enroll();
@@ -34,50 +34,38 @@ int main() {
         spdlog::critical("Failed to enroll key pair: {}", keys.error());
         return EXIT_FAILURE;
     }
-    server.value()->service(16);
+    host.value()->service(16);
     spdlog::info("Server is initialized");
 
     asio::steady_timer timer(io_ctx);
 
-    std::function<void()> app_tick = [&] {
-        auto e = (*server)->recv();
-        if (!e) {
-            timer.expires_after(std::chrono::milliseconds(16));
-            timer.async_wait([&](const std::error_code ec) {
-                if (!ec) app_tick();
-            });
-            return;
+    asio::co_spawn(io_ctx, [&] () -> asio::awaitable<void> {
+        while (true) {
+            auto e = (*host)->recv();
+            if (!e) {
+                timer.expires_after(std::chrono::milliseconds(16));
+                co_await timer.async_wait(asio::use_awaitable);
+                continue;
+            }
+
+            std::visit(
+                net::overloaded{[&](const net::connect_event &ce) constexpr {
+                    ce.peer()->data = static_cast<void *>(new net::peer_context{*host, net::handshake{*keys}, io_ctx});
+                },
+                [&](net::receive_event &re) constexpr {
+                    const auto ctx = static_cast<net::peer_context *>(re.peer()->data);
+                    ctx->handle(re);
+                },
+                [&](net::disconnect_event &de) constexpr {
+                    if (const auto ctx = static_cast<net::peer_context *>(de.peer()->data); ctx) {
+                        delete ctx;
+                        de.set_peer(nullptr);
+                    }
+                }}, e.value());
+
+            co_await asio::post(asio::use_awaitable);
         }
-
-        const std::chrono::high_resolution_clock::time_point begin = std::chrono::high_resolution_clock::now();
-        std::visit<void>(
-            net::overloaded{[&](const net::connect_event &ce) constexpr {
-                auto session = pty::session::create("/bin/fish");
-                if (!session) [[unlikely]] {
-                    spdlog::critical("Failed to create pty session: {}", session.error());
-                    return;
-                }
-                ce.peer()->data = static_cast<void *>(
-                        new net::peer_context{*server, net::handshake{*keys}, std::move(*session)});
-            },
-            [&](net::receive_event &re) constexpr {
-                const auto ctx = static_cast<net::peer_context *>(re.peer()->data);
-                ctx->handle(re);
-            },
-            [&](net::disconnect_event &de) constexpr {
-                if (const auto ctx = static_cast<net::peer_context *>(de.peer()->data); ctx) {
-                    delete ctx;
-                    de.set_peer(nullptr);
-                }
-            }}, e.value());
-
-        const auto duration = std::chrono::high_resolution_clock::now() - begin;
-        spdlog::info("Event handling time: {}μs",
-                     std::chrono::duration_cast<std::chrono::microseconds>(duration).count());
-
-        asio::post(io_ctx, app_tick);
-    };
-    asio::post(io_ctx, app_tick);
+    }, asio::detached);
 
     io_ctx.run();
     return EXIT_SUCCESS;

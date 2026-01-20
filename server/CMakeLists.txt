@@ -32,6 +32,8 @@ add_executable(server
         host.h
         session.cpp
         session.h
+        pty_pumper.cpp
+        pty_pumper.h
 )
 
 target_include_directories(server PRIVATE ../3rdparty
