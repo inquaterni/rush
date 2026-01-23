@@ -20,9 +20,11 @@ int main() {
     // 🚨🚨🚨 SINGLETON DETECTED 🚨🚨🚨
     crypto::guard::get_instance();
 
+    constexpr int poll_timeout_ms = 1;
+
     auto io_ctx = asio::io_context {};
     asio::signal_set signals(io_ctx, SIGINT, SIGTERM);
-    signals.async_wait([&](auto, auto){ io_ctx.stop(); });
+    signals.async_wait([&io_ctx](auto, auto){ io_ctx.stop(); });
 
     auto host = net::host::create(ENET_HOST_ANY, 6969, io_ctx);
     if (!host) {
@@ -34,23 +36,23 @@ int main() {
         spdlog::critical("Failed to enroll key pair: {}", keys.error());
         return EXIT_FAILURE;
     }
-    host.value()->service(16);
+    (*host)->service(poll_timeout_ms);
     spdlog::info("Server is initialized");
 
     asio::steady_timer timer(io_ctx);
 
-    asio::co_spawn(io_ctx, [&] () -> asio::awaitable<void> {
+    asio::co_spawn(io_ctx, [poll_timeout_ms, &timer, &host, &keys, &io_ctx] () -> asio::awaitable<void> {
         while (true) {
             auto e = (*host)->recv();
             if (!e) {
-                timer.expires_after(std::chrono::milliseconds(16));
+                timer.expires_after(std::chrono::milliseconds(poll_timeout_ms));
                 co_await timer.async_wait(asio::use_awaitable);
                 continue;
             }
 
-            std::visit(
-                net::overloaded{[&](const net::connect_event &ce) constexpr {
-                    ce.peer()->data = static_cast<void *>(new net::peer_context{*host, net::handshake{*keys}, io_ctx});
+            std::visit(net::overloaded{
+                [&](const net::connect_event &ce) constexpr {
+                    ce.peer()->data = static_cast<void *>(new net::peer_context{*host, net::handshake{}, *keys, io_ctx});
                 },
                 [&](net::receive_event &re) constexpr {
                     const auto ctx = static_cast<net::peer_context *>(re.peer()->data);

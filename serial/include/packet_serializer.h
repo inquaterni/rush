@@ -29,8 +29,12 @@ public:
             },
             [&] (const net::shell_message &p) {
                 switch (p.type) {
-                    case net::packet_type::STDIN: {
-                        auto data = root.initStdin(p.bytes.size());
+                    case net::packet_type::BYTES: {
+                        auto data = root.initBytes(p.bytes.size());
+                        std::ranges::copy(p.bytes, data.begin());
+                    } break;
+                    case net::packet_type::DISCONNECT: {
+                        auto data = root.initDisconnect(p.bytes.size());
                         std::ranges::copy(p.bytes, data.begin());
                     } break;
                     case net::packet_type::SIGNAL: {
@@ -61,9 +65,13 @@ public:
                     const auto key = packet_reader.getHandshake();
                     return net::handshake_packet {key.getPublicKey()};
                 }
-                case Packet::STDIN: {
-                    const auto bytes = packet_reader.getStdin();
-                    return net::shell_message {net::packet_type::STDIN, bytes};
+                case Packet::BYTES: {
+                    const auto bytes = packet_reader.getBytes();
+                    return net::shell_message {net::packet_type::BYTES, bytes};
+                }
+                case Packet::DISCONNECT: {
+                    const auto disconnect = packet_reader.getDisconnect();
+                    return net::shell_message {net::packet_type::DISCONNECT, disconnect};
                 }
                 case Packet::SIGNAL: {
                     const auto bytes = packet_reader.getSignal();

@@ -159,7 +159,8 @@ namespace net {
 
         return true;
     }
-    constexpr bool host::send(ENetPeer *peer, const std::vector<u8> &data, u8 channel_id, u32 flags, bool flush) const {
+    constexpr bool host::send(ENetPeer *peer, const std::vector<u8> &data, const u8 channel_id, const u32 flags,
+                              const bool flush) const {
         std::scoped_lock lock{m_mutex};
         if (!m_host) [[unlikely]]
             return false;

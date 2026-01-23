@@ -3,3 +3,7 @@
 //
 
 #include "state.h"
+
+namespace net {
+
+} // net

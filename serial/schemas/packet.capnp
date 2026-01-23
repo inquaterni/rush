@@ -3,9 +3,10 @@
 struct Packet {
     union {
         handshake @0 :Handshake;
-        stdin @1 :Data;
-        signal @2 :Data;
-        resize @3 :Winsize;
+        bytes @1 :Data;
+        disconnect @2 :Data;
+        signal @3 :Data;
+        resize @4 :Winsize;
     }
 }
 

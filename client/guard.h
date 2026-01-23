@@ -18,6 +18,7 @@ namespace term {
         static constexpr bool is_initialized() noexcept;
         constexpr bool enable_raw_mode() noexcept;
         constexpr void disable_raw_mode() noexcept;
+        constexpr bool is_raw() const noexcept {return raw;}
 
         constexpr guard(const guard &other) = delete;
         constexpr guard &operator=(const guard &other) = delete;

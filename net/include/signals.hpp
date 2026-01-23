@@ -22,7 +22,6 @@ namespace net {
     constexpr auto signal_table = std::to_array<sig_pair>({
         { SIGHUP,  "HUP"  },
         { SIGINT,  "INT"  },
-        { SIGKILL, "KILL" },
         { SIGQUIT, "QUIT" },
         { SIGTERM, "TERM" },
         { SIGUSR1, "USR1" },

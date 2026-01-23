@@ -14,7 +14,8 @@
 namespace net {
     enum class packet_type: u8 {
         HANDSHAKE,
-        STDIN,
+        BYTES,
+        DISCONNECT,
         SIGNAL,
         RESIZE
     };
