@@ -41,6 +41,10 @@ public:
                         auto data = root.initSignal(p.bytes.size());
                         std::ranges::copy(p.bytes, data.begin());
                     } break;
+                    case net::packet_type::AUTH_RESPONSE: {
+                        auto data = root.initAuthResponse(p.bytes.size());
+                        std::ranges::copy(p.bytes, data.begin());
+                    } break;
                     default: assert(0 && "Unreachable");
                 }
             },
@@ -50,6 +54,11 @@ public:
                 ws.setWsCol(p.ws.ws_col);
                 ws.setWsXpixel(p.ws.ws_xpixel);
                 ws.setWsYpixel(p.ws.ws_ypixel);
+            },
+            [&] (const net::auth_packet &p) {
+                auto auth = root.initAuthRequest();
+                auth.setUsername(p.username);
+                auth.setPasswd(p.password);
             }
         }, pkt);
 
@@ -76,6 +85,14 @@ public:
                 case Packet::SIGNAL: {
                     const auto bytes = packet_reader.getSignal();
                     return net::shell_message {net::packet_type::SIGNAL, bytes};
+                }
+                case Packet::AUTH_REQUEST: {
+                    const auto auth = packet_reader.getAuthRequest();
+                    return net::auth_packet {auth.getUsername(), auth.getPasswd()};
+                }
+                case Packet::AUTH_RESPONSE: {
+                    const auto auth = packet_reader.getAuthResponse();
+                    return net::shell_message {net::packet_type::AUTH_RESPONSE, auth};
                 }
                 case Packet::RESIZE: {
                     const auto ws_reader = packet_reader.getResize();

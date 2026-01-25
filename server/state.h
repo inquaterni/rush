@@ -9,6 +9,7 @@
 #include <utility>
 #include <variant>
 
+#include "../client/state.h"
 #include "cipher.h"
 #include "host.h"
 #include "keys_factory.h"
@@ -29,10 +30,14 @@ namespace net {
     struct establish_t {
         crypto::cipher cipher;
     };
-    struct activate_session_t {};
+    struct activate_session_t {
+        std::string username;
+        std::string password;
+    };
     class state;
     class handshake;
     class conn_confirm;
+    class auth;
     class connected;
 
     static constexpr u8 c_confirm_magic[] = "CONFIRM";
@@ -92,7 +97,7 @@ namespace net {
     };
     class conn_confirm final : public state {
     public:
-        inline static constinit auto max_confirmation_duration = 250ms;
+        inline static constinit auto max_duration = 250ms;
         constexpr conn_confirm() = default;
 
         constexpr conn_confirm(conn_confirm&&) = default;
@@ -102,6 +107,16 @@ namespace net {
         auto handle(const std::shared_ptr<host> &h, receive_event &e, const crypto::cipher &c) const noexcept;
     private:
         std::chrono::steady_clock::time_point confirm_start_point {std::chrono::steady_clock::now()};
+    };
+    class auth final : public state {
+    public:
+        // inline static constinit auto max_duration = 1000ms;
+        constexpr auth() noexcept = default;
+
+        [[nodiscard]]
+        auto handle(const receive_event &e, const crypto::cipher &c) const noexcept;
+    // private:
+        // std::chrono::steady_clock::time_point auth_start_point {std::chrono::steady_clock::now()};
     };
     class connected final : public state {
     public:
@@ -114,7 +129,7 @@ namespace net {
         auto handle(const std::shared_ptr<host> &h, const receive_event &e, const crypto::cipher &c, const pty::session &session) const noexcept;
     };
 
-    using state_t = std::variant<handshake, conn_confirm, connected>;
+    using state_t = std::variant<handshake, conn_confirm, auth, connected>;
     using transition_t = std::variant<keep_state_t, disconnect_t, establish_t, activate_session_t, state_t>;
 
     struct transition {
@@ -129,7 +144,9 @@ namespace net {
         static constexpr transition_t establish(std::unique_ptr<crypto::encryption> encryptor) noexcept {
             return {establish_t{crypto::cipher(std::move(encryptor))}};
         }
-        static constexpr transition_t activate_session() noexcept { return {activate_session_t{}}; }
+        static constexpr transition_t activate_session(std::string username, std::string passwd) noexcept {
+            return {activate_session_t{std::move(username), std::move(passwd)}};
+        }
         template <class T>
         requires std::derived_from<std::remove_cvref_t<T>, state> &&
             std::constructible_from<state_t, std::remove_cvref_t<T>>
@@ -198,7 +215,7 @@ namespace net {
     }
     inline auto conn_confirm::handle(const std::shared_ptr<host> &h, receive_event &e,
                                      const crypto::cipher &c) const noexcept {
-        if (std::chrono::steady_clock::now() - confirm_start_point > max_confirmation_duration) {
+        if (std::chrono::steady_clock::now() - confirm_start_point > max_duration) {
             return transition::disconnect("Timeout reached.");
         }
         const auto decrypted = c.decrypt(e.payload());
@@ -227,7 +244,23 @@ namespace net {
             return transition::keep();
         }
 
-        return transition::activate_session();
+        return transition::to(auth {});
+    }
+    inline auto auth::handle(const receive_event &e, const crypto::cipher &c) const noexcept {
+        const auto decrypted = c.decrypt(e.payload());
+        if (!decrypted) [[unlikely]] {
+            return transition::keep();
+        }
+        auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(*decrypted));
+        if (!pkt) [[unlikely]] {
+            return transition::keep();
+        }
+        auto *const request = std::get_if<auth_packet>(&*pkt);
+        if (!request) [[unlikely]] {
+            return transition::keep();
+        }
+
+        return transition::activate_session(std::move(request->username), std::move(request->password));
     }
     // ReSharper disable once CppMemberFunctionMayBeStatic
     inline auto connected::handle(const std::shared_ptr<host> & /* h */, const receive_event &e,
@@ -272,14 +305,17 @@ namespace net {
     }
     constexpr void peer_context::handle(receive_event &e) noexcept {
         auto transition = std::visit<transition_t>(overloaded {
-            [&] (const connected &s) constexpr {
-                return s.dispatch(m_host, e, *cipher, *session);
-            },
-            [&] (const conn_confirm &s) {
-                return s.dispatch(m_host, e, *cipher);
-            },
             [&] (handshake &s) constexpr {
                 return s.dispatch(m_host, e, m_keys);
+            },
+            [&] (const conn_confirm &s) constexpr {
+                return s.dispatch(m_host, e, *cipher);
+            },
+            [&] (const auth &s) constexpr {
+                return s.dispatch(e, *cipher);
+            },
+            [&] (const connected &s) constexpr {
+                return s.dispatch(m_host, e, *cipher, *session);
             }
         }, state);
 
@@ -309,12 +345,35 @@ namespace net {
                 this->cipher = std::make_shared<crypto::cipher>(std::move(est.cipher));
                 this->state = conn_confirm {};
             },
-            [&] (activate_session_t &) constexpr {
-                auto exp_sess = pty::session::create_unique("/bin/fish");
-                if (!exp_sess) [[unlikely]] {
-                    spdlog::critical("Failed to create pty session: {}", exp_sess.error());
+            [&] (const activate_session_t &act) constexpr {
+                auto exp_sess = pty::session::create_unique(act.username, act.password);
+                if (!exp_sess) {
+                    spdlog::error("Failed to create pty session: {}", exp_sess.error());
+                    const auto pkt = shell_message {packet_type::AUTH_RESPONSE, std::vector<u8> {exp_sess.error().begin(), exp_sess.error().end()}};
+                    const auto words = serial::packet_serializer::serialize(pkt);
+                    const auto encrypted = cipher->encrypt(capnp_array_to_span(words));
+                    if (!encrypted) [[unlikely]] {
+                        spdlog::error("Failed to encrypt error message: {}", encrypted.error());
+                        goto disconnect;
+                    }
+
+                    this->m_host->send(e.peer(), *encrypted);
+                    disconnect:
+                    this->m_host->disconnect(e.peer());
                     return;
                 }
+
+                const auto data = std::vector<u8> {s_confirm_magic, s_confirm_magic + sizeof(s_confirm_magic)};
+                const auto pkt = shell_message {packet_type::AUTH_RESPONSE, data};
+                const auto words = serial::packet_serializer::serialize(pkt);
+                const auto encrypted = cipher->encrypt(capnp_array_to_span(words));
+                if (!encrypted) [[unlikely]] {
+                    spdlog::error("Failed to encrypt confirmation message: {}", encrypted.error());
+                    this->m_host->disconnect(e.peer());
+                    return;
+                }
+                this->m_host->send(e.peer(), *encrypted);
+
                 this->session = std::move(*exp_sess);
                 this->pump = std::make_shared<pty_pumper>(
                     this->m_ctx,

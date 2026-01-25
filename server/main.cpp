@@ -46,7 +46,9 @@ int main() {
             auto e = (*host)->recv();
             if (!e) {
                 timer.expires_after(std::chrono::milliseconds(poll_timeout_ms));
-                co_await timer.async_wait(asio::use_awaitable);
+                if (const auto [ec] = co_await timer.async_wait(asio::as_tuple(asio::use_awaitable)); ec) {
+                    co_return;
+                }
                 continue;
             }
 

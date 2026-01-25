@@ -5,6 +5,8 @@
 #ifndef GUARD_H
 #define GUARD_H
 
+#include <expected>
+#include <iostream>
 #include <termios.h>
 #include <unistd.h>
 
@@ -55,6 +57,29 @@ namespace term {
     constexpr guard::guard() { initialized = tcgetattr(STDIN_FILENO, &orig_term) != -1;
     }
 
-} // termios
+    constexpr std::expected<std::string, std::string> getpwd(const std::string_view &prompt) {
+        termios old {};
+        if (tcgetattr(STDIN_FILENO, &old) < 0) {
+            return std::unexpected {"Unable to get terminal settings."};
+        }
+        termios new_term = old;
+        new_term.c_lflag &= ~ECHO;
+
+        if (tcsetattr(STDIN_FILENO, TCSANOW, &new_term) < 0) {
+            return std::unexpected {"Unable to apply terminal settings."};
+        }
+
+        std::cout << prompt << std::flush;
+        std::string password;
+        std::getline(std::cin, password);
+
+        if (tcsetattr(STDIN_FILENO, TCSANOW, &old) < 0) {
+            return std::unexpected {"Unable to restore terminal settings."};
+        }
+        std::cout << "\n";
+
+        return password;
+    }
+} // term
 
 #endif //GUARD_H

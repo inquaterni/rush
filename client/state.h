@@ -34,6 +34,7 @@ namespace net {
     class init;
     class handshake;
     class conn_confirm;
+    class auth;
     class connected;
 
     static constexpr u8 c_confirm_magic[] = "CONFIRM";
@@ -88,9 +89,19 @@ namespace net {
         constexpr conn_confirm() noexcept = default;
 
         [[nodiscard]]
-        auto handle(const std::shared_ptr<client> &c, const receive_event &e, const crypto::cipher &cipher) const noexcept;
+        auto handle(const std::shared_ptr<client> &c, const receive_event &e, const crypto::cipher &cipher, std::string_view user) const noexcept;
     private:
         std::chrono::steady_clock::time_point confirm_start_point {std::chrono::steady_clock::now()};
+    };
+    class auth final : public state {
+    public:
+        // inline static constinit auto max_duration = 1000ms;
+        constexpr auth() noexcept = default;
+
+        [[nodiscard]]
+        auto handle(const std::shared_ptr<client> &c, const receive_event &e, const crypto::cipher &cipher) const noexcept;
+    // private:
+        // std::chrono::steady_clock::time_point auth_start_point {std::chrono::steady_clock::now()};
     };
     class connected final : public state {
     public:
@@ -104,7 +115,7 @@ namespace net {
                     const crypto::cipher &cipher) const noexcept;
     };
 
-    using state_t = std::variant<handshake, conn_confirm, connected>;
+    using state_t = std::variant<handshake, conn_confirm, auth, connected>;
     using transition_t = std::variant<keep_state_t, disconnect_t, establish_t, activate_session_t, state_t>;
 
     struct transition {
@@ -133,8 +144,9 @@ namespace net {
         using client_ptr = std::shared_ptr<client>;
 
         constexpr client_context(client_ptr host, state_t state, const crypto::key_pair &keys,
-                                 asio::io_context &ctx, asio::signal_set &sigset) noexcept :
-            m_ctx(ctx), m_client(std::move(host)), state(std::move(state)), m_keys(keys), signals(sigset) {}
+                                 asio::io_context &ctx,
+                                 const std::string_view username, asio::signal_set &sigset) noexcept :
+            m_ctx(ctx), m_client(std::move(host)), state(std::move(state)), m_keys(keys), signals(sigset), m_username(username) {}
         constexpr void handle(receive_event &e) noexcept;
 
         constexpr ~client_context() noexcept {
@@ -148,6 +160,7 @@ namespace net {
         crypto::key_pair m_keys;
         asio::signal_set &signals;
         term::guard &m_guard{term::guard::get_instance()};
+        std::string_view m_username;
         std::shared_ptr<crypto::cipher> cipher {nullptr};
         std::shared_ptr<tunnel::session> m_sess {nullptr};
     };
@@ -199,8 +212,9 @@ namespace net {
 
         return transition::establish(std::move(cipher));
     }
-    inline auto conn_confirm::handle(const std::shared_ptr<client> &, const receive_event &e,
-                              const crypto::cipher &cipher) const noexcept {
+    inline auto conn_confirm::handle(const std::shared_ptr<client> &c, const receive_event &e,
+                                     const crypto::cipher &cipher,
+                                     const std::string_view user) const noexcept {
         if (std::chrono::steady_clock::now() - confirm_start_point > max_duration) {
             return transition::disconnect("Timeout reached.");
         }
@@ -218,6 +232,42 @@ namespace net {
         }
         if (!is_confirm<crypto::side::CLIENT>(sh_msg->bytes)) {
             return transition::keep();
+        }
+
+        auto pwd = term::getpwd(std::format("{}'s password: ", user));
+        if (!pwd) [[unlikely]] {
+            return transition::disconnect(pwd.error());
+        }
+        const auto auth_request = auth_packet {std::string(user), std::move(*pwd)};
+        const auto words = serial::packet_serializer::serialize(auth_request);
+        const auto encrypted = cipher.encrypt(capnp_array_to_span(words));
+        if (!encrypted) [[unlikely]] {
+            return transition::keep();
+        }
+        if (!c->send(*encrypted)) {
+            return transition::keep();
+        }
+
+        return transition::to(auth{});
+    }
+    inline auto auth::handle(const std::shared_ptr<client> &, const receive_event &e, const crypto::cipher &cipher) const noexcept {
+        // if (std::chrono::steady_clock::now() - auth_start_point > max_duration) {
+        //     return transition::disconnect("Timeout reached.");
+        // }
+        const auto decrypted = cipher.decrypt(e.payload());
+        if (!decrypted) [[unlikely]] {
+            return transition::keep();
+        }
+        const auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(*decrypted));
+        if (!pkt) [[unlikely]] {
+            return transition::keep();
+        }
+        const auto *const sh_msg = std::get_if<shell_message>(&*pkt);
+        if (!sh_msg || sh_msg->type != packet_type::AUTH_RESPONSE) [[unlikely]] {
+            return transition::keep();
+        }
+        if (!is_confirm<crypto::side::CLIENT>(sh_msg->bytes)) {
+            return transition::disconnect("Authentication failed: " + std::string{sh_msg->bytes.begin(), sh_msg->bytes.end()});
         }
 
         return transition::activate_session();
@@ -261,8 +311,11 @@ namespace net {
             [&] (connected &s) constexpr {
                 return s.dispatch(m_client, e, *cipher);
             },
-            [&] (conn_confirm &s) constexpr {
+            [&] (auth &s) constexpr {
                 return s.dispatch(m_client, e, *cipher);
+            },
+            [&] (conn_confirm &s) constexpr {
+                return s.dispatch(m_client, e, *cipher, this->m_username);
             },
             [&] (handshake &s) constexpr {
                 return s.dispatch(m_client, e, m_keys);
@@ -301,6 +354,7 @@ namespace net {
                     this->signals
                     );
 
+                spdlog::info("Successfully initialized tunnelling session.");
                 this->m_sess->start();
                 this->state = connected {};
             },

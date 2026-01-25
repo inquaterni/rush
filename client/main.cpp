@@ -16,12 +16,28 @@
 
 #include <sys/signalfd.h>
 
+#include "asio/as_tuple.hpp"
 #include "asio/co_spawn.hpp"
 #include "asio/detached.hpp"
 #include "asio/signal_set.hpp"
 #include "state.h"
 
-int main() {
+
+std::pair<std::string_view, std::string_view>
+split_pair(std::string_view arg, const char delimiter) {
+
+    const auto pos = arg.find(delimiter);
+    if (pos == std::string_view::npos) {
+        return {arg, {}};
+    }
+
+    return {
+        arg.substr(0, pos),
+        arg.substr(pos + 1)
+    };
+}
+
+int main(const int argc, char **argv) {
     // 🚨🚨🚨 SINGLETON DETECTED 🚨🚨🚨
     net::guard::get_instance();
     // 🚨🚨🚨 SINGLETON DETECTED 🚨🚨🚨
@@ -39,6 +55,14 @@ int main() {
     signals.add(SIGUSR2);
     signals.add(SIGWINCH);
 
+    if (argc < 2) {
+        spdlog::error("No `<user>@<host>` argument.");
+        return EXIT_FAILURE;
+    }
+
+    const std::string_view user_host = argv[1];
+    const auto [user, host] = split_pair(user_host, '@');
+
     auto exp_client = net::client::create(io_ctx);
     if (!exp_client) [[unlikely]] {
         spdlog::critical("Failed to create client: {}", exp_client.error());
@@ -54,7 +78,7 @@ int main() {
 
     client->service(poll_timeout_ms);
 
-    if (!client->connect("localhost", 6969)) {
+    if (!client->connect(host, 6969)) {
         spdlog::critical("Failed to connect to server. Is server running?");
         return EXIT_FAILURE;
     }
@@ -65,12 +89,14 @@ int main() {
     asio::steady_timer timer(io_ctx);
 
     std::unique_ptr<net::client_context> ctx {nullptr};
-    asio::co_spawn(io_ctx, [poll_timeout_ms, &timer, &client, &keys, &io_ctx, &ctx, &signals, &term] () -> asio::awaitable<void> {
+    asio::co_spawn(io_ctx, [poll_timeout_ms, user, &timer, &client, &keys, &io_ctx, &ctx, &signals, &term] () -> asio::awaitable<void> {
         while (true) {
             auto e = client->recv();
             if (!e) {
                 timer.expires_after(std::chrono::milliseconds(poll_timeout_ms));
-                co_await timer.async_wait(asio::use_awaitable);
+                if (const auto [ec] = co_await timer.async_wait(asio::as_tuple(asio::use_awaitable)); ec) {
+                    co_return;
+                }
                 continue;
             }
 
@@ -78,10 +104,9 @@ int main() {
                 [&](const net::connect_event &) constexpr {
                     if (!client->send(net::handshake_packet{keys->cpublic_key()})) [[unlikely]] {
                         spdlog::error("Failed to send handshake.");
-                        client->disconnect();
                         return std::nullopt;
                     }
-                    ctx = std::make_unique<net::client_context>(client, net::handshake{}, *keys, io_ctx, signals);
+                    ctx = std::make_unique<net::client_context>(client, net::handshake{}, *keys, io_ctx, user, signals);
                     return std::nullopt;
                 },
                 [&](net::receive_event &re) constexpr {

@@ -17,6 +17,8 @@ namespace net {
         BYTES,
         DISCONNECT,
         SIGNAL,
+        AUTH_REQUEST,
+        AUTH_RESPONSE,
         RESIZE
     };
 
@@ -50,8 +52,23 @@ namespace net {
         explicit constexpr resize_packet(const winsize ws) noexcept : ws(ws) {}
         explicit constexpr resize_packet(winsize &&ws) noexcept : ws(std::forward<winsize>(ws)) {}
     };
+    struct auth_packet {
+        constexpr static auto type = packet_type::AUTH_REQUEST;
+        std::string username {};
+        std::string password {};
 
-    using packet = std::variant<shell_message, handshake_packet, resize_packet>;
+        constexpr auth_packet(std::string username, std::string password) noexcept
+        : username(std::move(username)), password(std::move(password)) {}
+
+        constexpr auth_packet(const capnp::Text::Reader &username_reader, const capnp::Text::Reader &password_reader) noexcept {
+            username.resize(username_reader.size());
+            password.resize(password_reader.size());
+            std::ranges::copy(username_reader, username.begin());
+            std::ranges::copy(password_reader, password.begin());
+        }
+    };
+
+    using packet = std::variant<shell_message, handshake_packet, resize_packet, auth_packet>;
 
     template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
     template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
