@@ -31,6 +31,8 @@ namespace tunnel {
         constexpr void do_wait_signal() noexcept;
         constexpr void start() noexcept;
         constexpr void stop() noexcept;
+
+        static constexpr std::optional<winsize> get_window_size() noexcept;
     private:
         asio::io_context &io_ctx;
         std::shared_ptr<net::client> m_client;
@@ -118,6 +120,13 @@ namespace tunnel {
         m_stream.cancel(ec);
         m_signals.cancel(ec);
         m_stream.close(ec);
+    }
+    constexpr std::optional<winsize> session::get_window_size() noexcept {
+        winsize ws{};
+        if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) < 0) [[unlikely]]
+            return std::nullopt;
+
+        return ws;
     }
 
 } // tunnel

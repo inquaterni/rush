@@ -213,8 +213,7 @@ namespace net {
         return transition::establish(std::move(cipher));
     }
     inline auto conn_confirm::handle(const std::shared_ptr<client> &c, const receive_event &e,
-                                     const crypto::cipher &cipher,
-                                     const std::string_view user) const noexcept {
+                                     const crypto::cipher &cipher, const std::string_view user) const noexcept {
         if (std::chrono::steady_clock::now() - confirm_start_point > max_duration) {
             return transition::disconnect("Timeout reached.");
         }
@@ -238,7 +237,7 @@ namespace net {
         if (!pwd) [[unlikely]] {
             return transition::disconnect(pwd.error());
         }
-        const auto auth_request = auth_packet {std::string(user), std::move(*pwd)};
+        const auto auth_request = auth_packet{std::string(user), std::move(*pwd)};
         const auto words = serial::packet_serializer::serialize(auth_request);
         const auto encrypted = cipher.encrypt(capnp_array_to_span(words));
         if (!encrypted) [[unlikely]] {
@@ -250,10 +249,8 @@ namespace net {
 
         return transition::to(auth{});
     }
-    inline auto auth::handle(const std::shared_ptr<client> &, const receive_event &e, const crypto::cipher &cipher) const noexcept {
-        // if (std::chrono::steady_clock::now() - auth_start_point > max_duration) {
-        //     return transition::disconnect("Timeout reached.");
-        // }
+    // ReSharper disable once CppMemberFunctionMayBeStatic
+    inline auto auth::handle(const std::shared_ptr<client> &c, const receive_event &e, const crypto::cipher &cipher) const noexcept {
         const auto decrypted = cipher.decrypt(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
@@ -268,6 +265,22 @@ namespace net {
         }
         if (!is_confirm<crypto::side::CLIENT>(sh_msg->bytes)) {
             return transition::disconnect("Authentication failed: " + std::string{sh_msg->bytes.begin(), sh_msg->bytes.end()});
+        }
+        const auto ws = tunnel::session::get_window_size();
+        if (!ws) [[unlikely]] {
+            spdlog::warn("Failed to retrieve window size.");
+            return transition::activate_session();
+        }
+        const auto resize = resize_packet {*ws};
+        const auto serialized = serial::packet_serializer::serialize(resize);
+        const auto encrypted = cipher.encrypt(capnp_array_to_span(serialized));
+        if (!encrypted) [[unlikely]] {
+            spdlog::warn("Failed to encrypt window size data.");
+            return transition::activate_session();
+        }
+        if (!c->send(*encrypted, 1)) {
+            spdlog::warn("Failed to send encrypted data.");
+            return transition::activate_session();
         }
 
         return transition::activate_session();
@@ -354,7 +367,6 @@ namespace net {
                     this->signals
                     );
 
-                spdlog::info("Successfully initialized tunnelling session.");
                 this->m_sess->start();
                 this->state = connected {};
             },

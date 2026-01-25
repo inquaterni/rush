@@ -110,13 +110,10 @@ namespace net {
     };
     class auth final : public state {
     public:
-        // inline static constinit auto max_duration = 1000ms;
         constexpr auth() noexcept = default;
 
         [[nodiscard]]
         auto handle(const receive_event &e, const crypto::cipher &c) const noexcept;
-    // private:
-        // std::chrono::steady_clock::time_point auth_start_point {std::chrono::steady_clock::now()};
     };
     class connected final : public state {
     public:
@@ -244,8 +241,9 @@ namespace net {
             return transition::keep();
         }
 
-        return transition::to(auth {});
+        return transition::to(auth{});
     }
+    // ReSharper disable once CppMemberFunctionMayBeStatic
     inline auto auth::handle(const receive_event &e, const crypto::cipher &c) const noexcept {
         const auto decrypted = c.decrypt(e.payload());
         if (!decrypted) [[unlikely]] {
