@@ -5,8 +5,6 @@
 #ifndef STATE_H
 #define STATE_H
 #include <memory>
-#include <string>
-#include <utility>
 
 #include "client.h"
 #include "guard.h"
@@ -69,7 +67,6 @@ namespace net {
             return self.handle(std::forward<decltype(args)>(args)...);
         }
     };
-
     class handshake final : public state {
     public:
         inline static constinit auto max_duration = 500ms;
@@ -95,13 +92,14 @@ namespace net {
     };
     class auth final : public state {
     public:
-        // inline static constinit auto max_duration = 1000ms;
+        static constinit inline int max_retries {1};
         constexpr auth() noexcept = default;
 
         [[nodiscard]]
-        auto handle(const std::shared_ptr<client> &c, const receive_event &e, const crypto::cipher &cipher) const noexcept;
-    // private:
-        // std::chrono::steady_clock::time_point auth_start_point {std::chrono::steady_clock::now()};
+        auto handle(const std::shared_ptr<client> &c, const receive_event &e, const crypto::cipher &cipher,
+                    std::string_view user) noexcept;
+    private:
+        int retries{0};
     };
     class connected final : public state {
     public:
@@ -122,6 +120,10 @@ namespace net {
         static constexpr transition_t keep() noexcept { return {keep_state_t {}}; }
         static constexpr transition_t disconnect() noexcept { return {disconnect_t{}}; }
         static constexpr transition_t disconnect(std::string reason) noexcept {
+            return {disconnect_t{std::move(reason)}};
+        }
+        static constexpr transition_t disconnect(const std::vector<u8> &bytes) noexcept {
+            std::string reason(bytes.begin(), bytes.end());
             return {disconnect_t{std::move(reason)}};
         }
         static constexpr transition_t establish(crypto::cipher cipher) noexcept {
@@ -174,43 +176,56 @@ namespace net {
         if (!pkt) {
             return transition::keep();
         }
-        const auto *const hs = std::get_if<handshake_packet>(&*pkt);
-        if (!hs) {
-            if (retries++ > max_retries) {
-                return transition::disconnect("Maximum retries exceeded.");
+        return std::visit(overloaded {
+            [&] (const handshake_packet &hs) constexpr {
+                const auto sk = crypto::keys_factory::enroll<crypto::side::CLIENT>(pair, hs.public_key);
+                if (!sk) [[unlikely]] {
+                    if (retries++ > max_retries) {
+                        return transition::disconnect("Maximum retries exceeded.");
+                    }
+                    return transition::keep();
+                }
+
+                auto encryptor = std::make_unique<crypto::xchacha20poly1305>(*sk);
+                auto cipher = crypto::cipher(std::move(encryptor));
+
+                const auto confirm = shell_message{packet_type::BYTES,
+                                                   std::vector(c_confirm_magic, c_confirm_magic + sizeof(c_confirm_magic))};
+                const auto encrypted = cipher.encrypt(capnp_array_to_span(serial::packet_serializer::serialize(confirm)));
+                if (!encrypted) [[unlikely]] {
+                    if (retries++ > max_retries) {
+                        return transition::disconnect("Maximum retries exceeded.");
+                    }
+
+                    return transition::keep();
+                }
+                if (!c->send(*encrypted)) [[unlikely]] {
+                    if (retries++ > max_retries) {
+                        return transition::disconnect("Maximum retries exceeded.");
+                    }
+
+                    return transition::keep();
+                }
+
+                return transition::establish(std::move(cipher));
+            },
+            [&] (const shell_message &sh_msg) constexpr {
+                if (sh_msg.type != packet_type::DISCONNECT) {
+                    if (retries++ > max_retries) {
+                        return transition::disconnect("Maximum retries exceeded.");
+                    }
+                    return transition::keep();
+                }
+
+                return transition::disconnect(sh_msg.bytes);
+            },
+            [&] (auto &) constexpr {
+                if (retries++ > max_retries) {
+                    return transition::disconnect("Maximum retries exceeded.");
+                }
+                return transition::keep();
             }
-            return transition::keep();
-        }
-        const auto sk = crypto::keys_factory::enroll<crypto::side::CLIENT>(pair, hs->public_key);
-        if (!sk) [[unlikely]] {
-            if (retries++ > max_retries) {
-                return transition::disconnect("Maximum retries exceeded.");
-            }
-            return transition::keep();
-        }
-
-        auto encryptor = std::make_unique<crypto::xchacha20poly1305>(*sk);
-        auto cipher = crypto::cipher(std::move(encryptor));
-
-        const auto confirm = shell_message{packet_type::BYTES,
-                                           std::vector(c_confirm_magic, c_confirm_magic + sizeof(c_confirm_magic))};
-        const auto encrypted = cipher.encrypt(capnp_array_to_span(serial::packet_serializer::serialize(confirm)));
-        if (!encrypted) [[unlikely]] {
-            if (retries++ > max_retries) {
-                return transition::disconnect("Maximum retries exceeded.");
-            }
-
-            return transition::keep();
-        }
-        if (!c->send(*encrypted)) [[unlikely]] {
-            if (retries++ > max_retries) {
-                return transition::disconnect("Maximum retries exceeded.");
-            }
-
-            return transition::keep();
-        }
-
-        return transition::establish(std::move(cipher));
+        }, *pkt);
     }
     inline auto conn_confirm::handle(const std::shared_ptr<client> &c, const receive_event &e,
                                      const crypto::cipher &cipher, const std::string_view user) const noexcept {
@@ -225,32 +240,43 @@ namespace net {
         if (!pkt) [[unlikely]] {
             return transition::keep();
         }
-        const auto *const sh_msg = std::get_if<shell_message>(&*pkt);
-        if (!sh_msg || sh_msg->type != packet_type::BYTES) [[unlikely]] {
-            return transition::keep();
-        }
-        if (!is_confirm<crypto::side::CLIENT>(sh_msg->bytes)) {
-            return transition::keep();
-        }
+        return std::visit(overloaded {
+            [&] (const shell_message &sh_msg) {
+                switch (sh_msg.type) {
+                    case packet_type::BYTES: {
+                        if (!is_confirm<crypto::side::CLIENT>(sh_msg.bytes)) {
+                            return transition::keep();
+                        }
 
-        auto pwd = term::getpwd(std::format("{}'s password: ", user));
-        if (!pwd) [[unlikely]] {
-            return transition::disconnect(pwd.error());
-        }
-        const auto auth_request = auth_packet{std::string(user), std::move(*pwd)};
-        const auto words = serial::packet_serializer::serialize(auth_request);
-        const auto encrypted = cipher.encrypt(capnp_array_to_span(words));
-        if (!encrypted) [[unlikely]] {
-            return transition::keep();
-        }
-        if (!c->send(*encrypted)) {
-            return transition::keep();
-        }
+                        auto pwd = term::getpwd(std::format("{}'s password: ", user));
+                        if (!pwd) [[unlikely]] {
+                            return transition::disconnect(pwd.error());
+                        }
+                        const auto auth_request = auth_packet{std::string(user), std::move(*pwd)};
+                        const auto words = serial::packet_serializer::serialize(auth_request);
+                        const auto encrypted = cipher.encrypt(capnp_array_to_span(words));
+                        if (!encrypted) [[unlikely]] {
+                            return transition::keep();
+                        }
+                        if (!c->send(*encrypted)) {
+                            return transition::keep();
+                        }
 
-        return transition::to(auth{});
+                        return transition::to(auth{});
+                    }
+                    case packet_type::DISCONNECT: {
+                        return transition::disconnect(sh_msg.bytes);
+                    }
+                    default: return transition::keep();
+                }
+            },
+            [&] (auto &) constexpr {
+                return transition::keep();
+            }
+        }, *pkt);
     }
     // ReSharper disable once CppMemberFunctionMayBeStatic
-    inline auto auth::handle(const std::shared_ptr<client> &c, const receive_event &e, const crypto::cipher &cipher) const noexcept {
+    inline auto auth::handle(const std::shared_ptr<client> &c, const receive_event &e, const crypto::cipher &cipher, const std::string_view user) noexcept {
         const auto decrypted = cipher.decrypt(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
@@ -259,31 +285,61 @@ namespace net {
         if (!pkt) [[unlikely]] {
             return transition::keep();
         }
-        const auto *const sh_msg = std::get_if<shell_message>(&*pkt);
-        if (!sh_msg || sh_msg->type != packet_type::AUTH_RESPONSE) [[unlikely]] {
-            return transition::keep();
-        }
-        if (!is_confirm<crypto::side::CLIENT>(sh_msg->bytes)) {
-            return transition::disconnect("Authentication failed: " + std::string{sh_msg->bytes.begin(), sh_msg->bytes.end()});
-        }
-        const auto ws = tunnel::session::get_window_size();
-        if (!ws) [[unlikely]] {
-            spdlog::warn("Failed to retrieve window size.");
-            return transition::activate_session();
-        }
-        const auto resize = resize_packet {*ws};
-        const auto serialized = serial::packet_serializer::serialize(resize);
-        const auto encrypted = cipher.encrypt(capnp_array_to_span(serialized));
-        if (!encrypted) [[unlikely]] {
-            spdlog::warn("Failed to encrypt window size data.");
-            return transition::activate_session();
-        }
-        if (!c->send(*encrypted, 1)) {
-            spdlog::warn("Failed to send encrypted data.");
-            return transition::activate_session();
-        }
+        return std::visit(overloaded {
+            [&] (const shell_message &sh_msg) {
+                switch (sh_msg.type) {
+                    case packet_type::AUTH_RESPONSE: {
+                        if (!is_confirm<crypto::side::CLIENT>(sh_msg.bytes)) {
+                            spdlog::info(std::string{sh_msg.bytes.begin(), sh_msg.bytes.end()});
+                            if (retries++ > max_retries) {
+                                return transition::disconnect("Maximum retries exceeded.");
+                            }
+                            spdlog::info("Try again.");
+                            auto pwd = term::getpwd(std::format("{}'s password: ", user));
+                            if (!pwd) [[unlikely]] {
+                                return transition::disconnect(pwd.error());
+                            }
+                            const auto auth_request = auth_packet{std::string(user), std::move(*pwd)};
+                            const auto words = serial::packet_serializer::serialize(auth_request);
+                            const auto encrypted = cipher.encrypt(capnp_array_to_span(words));
+                            if (!encrypted) [[unlikely]] {
+                                return transition::keep();
+                            }
+                            if (!c->send(*encrypted)) {
+                                return transition::keep();
+                            }
 
-        return transition::activate_session();
+                            return transition::keep();
+                        }
+                        const auto ws = tunnel::session::get_window_size();
+                        if (!ws) [[unlikely]] {
+                            spdlog::warn("Failed to retrieve window size.");
+                            return transition::activate_session();
+                        }
+                        const auto resize = resize_packet {*ws};
+                        const auto serialized = serial::packet_serializer::serialize(resize);
+                        const auto encrypted = cipher.encrypt(capnp_array_to_span(serialized));
+                        if (!encrypted) [[unlikely]] {
+                            spdlog::warn("Failed to encrypt window size data.");
+                            return transition::activate_session();
+                        }
+                        if (!c->send(*encrypted, 1)) {
+                            spdlog::warn("Failed to send encrypted data.");
+                            return transition::activate_session();
+                        }
+
+                        return transition::activate_session();
+                    }
+                    case packet_type::DISCONNECT: {
+                        return transition::disconnect(sh_msg.bytes);
+                    }
+                    default: return transition::keep();
+                }
+            },
+            [&] (auto &) constexpr {
+                return transition::keep();
+            }
+        }, *pkt);
     }
     // ReSharper disable once CppMemberFunctionMayBeStatic
     inline auto connected::handle(const std::shared_ptr<client> &, const receive_event &e,
@@ -306,8 +362,7 @@ namespace net {
                         }
                     } break;
                     case packet_type::DISCONNECT: {
-                        const std::string msg {reinterpret_cast<const char *>(sh_msg.bytes.data()), sh_msg.bytes.size()};
-                        transition::disconnect(msg);
+                        transition::disconnect(sh_msg.bytes);
                     } break;
                     default: return transition::keep();
                 }
@@ -325,7 +380,7 @@ namespace net {
                 return s.dispatch(m_client, e, *cipher);
             },
             [&] (auth &s) constexpr {
-                return s.dispatch(m_client, e, *cipher);
+                return s.dispatch(m_client, e, *cipher, this->m_username);
             },
             [&] (conn_confirm &s) constexpr {
                 return s.dispatch(m_client, e, *cipher, this->m_username);
@@ -370,7 +425,7 @@ namespace net {
                 this->m_sess->start();
                 this->state = connected {};
             },
-            [&] (state_t &new_state) constexpr {
+            [&] (state_t new_state) constexpr {
                 this->state = std::move(new_state);
             }
         }, transition);

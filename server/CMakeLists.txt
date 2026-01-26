@@ -49,7 +49,7 @@ target_include_directories(server PRIVATE ../3rdparty
         ../crypto/include
         ../serial/include
         ../pack/include
-        ${PAM_INLUDE_DIR}
+        ${PAM_INCLUDE_DIR}
 )
 target_link_libraries(server PRIVATE
         net

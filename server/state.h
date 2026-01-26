@@ -5,11 +5,8 @@
 #ifndef STATE_H
 #define STATE_H
 #include <memory>
-#include <spdlog/spdlog.h>
 #include <utility>
-#include <variant>
 
-#include "../client/state.h"
 #include "cipher.h"
 #include "host.h"
 #include "keys_factory.h"
@@ -17,7 +14,6 @@
 #include "pty_pumper.h"
 #include "session.h"
 #include "signals.hpp"
-#include "state.h"
 #include "xchacha20poly1305.h"
 
 namespace net {
@@ -352,12 +348,13 @@ namespace net {
                     const auto encrypted = cipher->encrypt(capnp_array_to_span(words));
                     if (!encrypted) [[unlikely]] {
                         spdlog::error("Failed to encrypt error message: {}", encrypted.error());
-                        goto disconnect;
+                        // goto disconnect;
+                        return;
                     }
 
                     this->m_host->send(e.peer(), *encrypted);
-                    disconnect:
-                    this->m_host->disconnect(e.peer());
+                    // disconnect:
+                    // this->m_host->disconnect(e.peer());
                     return;
                 }
 
@@ -367,7 +364,7 @@ namespace net {
                 const auto encrypted = cipher->encrypt(capnp_array_to_span(words));
                 if (!encrypted) [[unlikely]] {
                     spdlog::error("Failed to encrypt confirmation message: {}", encrypted.error());
-                    this->m_host->disconnect(e.peer());
+                    // this->m_host->disconnect(e.peer());
                     return;
                 }
                 this->m_host->send(e.peer(), *encrypted);
