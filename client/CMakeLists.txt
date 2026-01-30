@@ -35,8 +35,6 @@ add_executable(client
         state.h
         state.cpp
         state.h
-        session.cpp
-        session.h
 )
 
 target_include_directories(client PRIVATE ../3rdparty
@@ -44,12 +42,14 @@ target_include_directories(client PRIVATE ../3rdparty
         ../crypto/include
         ../serial/include
         ../pack/include
+        ../term/include
 )
 target_link_libraries(client PRIVATE
         net
         crypto
         serial
         pack
+        term
         asio::asio
 )
 target_compile_options(client PRIVATE -Wall -Wextra -Wpedantic)

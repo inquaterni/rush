@@ -6,10 +6,10 @@
 #define SESSION_H
 #include <memory>
 
+#include "../../client/client.h"
 #include "asio/posix/basic_stream_descriptor.hpp"
 #include "asio/posix/stream_descriptor.hpp"
 #include "asio/signal_set.hpp"
-#include "client.h"
 #include "signals.hpp"
 
 namespace tunnel {
@@ -18,9 +18,9 @@ namespace tunnel {
         { 0x1C, SIGQUIT }
     });
 
-    class session : public std::enable_shared_from_this<session> {
+    class tunnel_session : public std::enable_shared_from_this<tunnel_session> {
     public:
-        constexpr session(asio::io_context &ctx, const std::shared_ptr<net::client> &c, crypto::cipher &cipher, asio::signal_set &sigset) noexcept
+        constexpr tunnel_session(asio::io_context &ctx, const std::shared_ptr<net::client> &c, crypto::cipher &cipher, asio::signal_set &sigset) noexcept
         : io_ctx(ctx),
           m_client(c),
           m_cipher(cipher),
@@ -41,7 +41,7 @@ namespace tunnel {
         asio::signal_set &m_signals;
         std::array<net::u8, 4096> m_buffer{};
     };
-    constexpr void session::do_read_stdin() noexcept {
+    constexpr void tunnel_session::do_read_stdin() noexcept {
         auto self = shared_from_this();
         m_stream.async_read_some(asio::buffer(m_buffer, 4096), [self](const std::error_code ec, const std::size_t n) {
             if (ec)
@@ -66,7 +66,7 @@ namespace tunnel {
             self->do_read_stdin();
         });
     }
-    constexpr void session::do_wait_signal() noexcept {
+    constexpr void tunnel_session::do_wait_signal() noexcept {
         auto self = shared_from_this();
         m_signals.async_wait([self](const std::error_code &ec, const int signo) {
             if (ec)
@@ -111,17 +111,17 @@ namespace tunnel {
             self->do_wait_signal();
         });
     }
-    constexpr void session::start() noexcept {
+    constexpr void tunnel_session::start() noexcept {
         do_read_stdin();
         do_wait_signal();
     }
-    constexpr void session::stop() noexcept {
+    constexpr void tunnel_session::stop() noexcept {
         std::error_code ec;
         m_stream.cancel(ec);
         m_signals.cancel(ec);
         m_stream.close(ec);
     }
-    constexpr std::optional<winsize> session::get_window_size() noexcept {
+    constexpr std::optional<winsize> tunnel_session::get_window_size() noexcept {
         winsize ws{};
         if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) < 0) [[unlikely]]
             return std::nullopt;

@@ -6,11 +6,11 @@
 #define STATE_H
 #include <memory>
 
+#include "tunnel_session.h"
 #include "client.h"
 #include "guard.h"
 #include "key_pair.h"
 #include "keys_factory.h"
-#include "session.h"
 #include "xchacha20poly1305.h"
 
 namespace crypto {
@@ -74,6 +74,15 @@ namespace net {
 
         constexpr handshake() noexcept = default;
 
+        handshake(handshake&&) = default;
+        handshake &operator=(handshake &&other) noexcept {
+            if (this != &other) {
+                this->hs_start_point = other.hs_start_point;
+                this->retries = other.retries;
+            }
+            return *this;
+        }
+
         [[nodiscard]]
         auto handle(const std::shared_ptr<client> &c, const receive_event& e, const crypto::key_pair &pair) noexcept;
     private:
@@ -84,6 +93,9 @@ namespace net {
     public:
         inline static constinit auto max_duration = 250ms;
         constexpr conn_confirm() noexcept = default;
+
+        constexpr conn_confirm(conn_confirm&&) = default;
+        constexpr conn_confirm& operator=(conn_confirm&&) = default;
 
         [[nodiscard]]
         auto handle(const std::shared_ptr<client> &c, const receive_event &e, const crypto::cipher &cipher, std::string_view user) const noexcept;
@@ -164,7 +176,7 @@ namespace net {
         term::guard &m_guard{term::guard::get_instance()};
         std::string_view m_username;
         std::shared_ptr<crypto::cipher> cipher {nullptr};
-        std::shared_ptr<tunnel::session> m_sess {nullptr};
+        std::shared_ptr<tunnel::tunnel_session> m_sess {nullptr};
     };
     inline auto handshake::handle(const std::shared_ptr<client> &c, const receive_event &e,
                            const crypto::key_pair &pair) noexcept {
@@ -311,7 +323,7 @@ namespace net {
 
                             return transition::keep();
                         }
-                        const auto ws = tunnel::session::get_window_size();
+                        const auto ws = tunnel::tunnel_session::get_window_size();
                         if (!ws) [[unlikely]] {
                             spdlog::warn("Failed to retrieve window size.");
                             return transition::activate_session();
@@ -415,7 +427,7 @@ namespace net {
                     this->m_client->disconnect();
                 }
 
-                this->m_sess = std::make_shared<tunnel::session>(
+                this->m_sess = std::make_shared<tunnel::tunnel_session>(
                     this->m_ctx,
                     this->m_client,
                     *this->cipher,
@@ -425,7 +437,7 @@ namespace net {
                 this->m_sess->start();
                 this->state = connected {};
             },
-            [&] (state_t new_state) constexpr {
+            [&] (state_t &new_state) constexpr {
                 this->state = std::move(new_state);
             }
         }, transition);

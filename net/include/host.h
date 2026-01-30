@@ -27,6 +27,8 @@ namespace net {
         static constinit inline short max_clients = 32;
         static constinit inline short max_channels = 3;
 
+        virtual ~host() = default;
+
         explicit constexpr host(host_type && /* host */, asio::io_context & /* ctx */) noexcept;
 
         constexpr static std::expected<std::shared_ptr<host>, std::string>
@@ -34,18 +36,18 @@ namespace net {
         constexpr void service(int timeout = 16) noexcept;
         constexpr void do_service_step(int timeout, const std::error_code &ec) noexcept;
         constexpr std::expected<event, std::string> recv() noexcept;
-        constexpr bool send(ENetPeer *peer, const packet &pkt, u8 channel_id = 0,
+        virtual constexpr bool send(ENetPeer *peer, const packet &pkt, u8 channel_id = 0,
                             u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE,
                             bool flush = true) const;
-        constexpr bool send(ENetPeer *peer, std::span<const u8> data, u8 channel_id = 0,
+        virtual constexpr bool send(ENetPeer *peer, std::span<const u8> data, u8 channel_id = 0,
             u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE,
             bool flush = true) const;
-        constexpr bool send(ENetPeer *peer, const std::vector<u8> &data, u8 channel_id = 0,
+        virtual constexpr bool send(ENetPeer *peer, const std::vector<u8> &data, u8 channel_id = 0,
             u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE,
             bool flush = true) const;
-        constexpr void disconnect(ENetPeer *peer) const noexcept;
+        virtual constexpr void disconnect(ENetPeer *peer) const noexcept;
 
-    private:
+    protected:
         host_type m_host;
         mutable std::mutex m_mutex{};
         asio::steady_timer m_timer;

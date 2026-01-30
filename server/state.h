@@ -7,8 +7,8 @@
 #include <memory>
 #include <utility>
 
+#include "../net/include/host.h"
 #include "cipher.h"
-#include "host.h"
 #include "keys_factory.h"
 #include "packet_serializer.h"
 #include "pty_pumper.h"

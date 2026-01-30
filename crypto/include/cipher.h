@@ -19,6 +19,10 @@ namespace crypto {
         explicit cipher(std::unique_ptr<encryption> &&encryption) noexcept
         : encryptor(std::forward<std::unique_ptr<class encryption>>(encryption)) {};
 
+#if defined(TESTING)
+        virtual ~cipher() = default;
+#endif
+
         [[nodiscard]]
         constexpr std::expected<std::vector<u8>, std::string> encrypt(const std::span<const u8> &message) const {
             if (!encryptor) {
@@ -48,7 +52,7 @@ namespace crypto {
             return encryptor->decrypt(cipher);
         }
 
-    private:
+    protected:
         std::unique_ptr<encryption> encryptor;
     };
 

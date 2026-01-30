@@ -1,16 +1,16 @@
 //
 // Created by inquaterni on 12/30/25.
 //
+#include <asio.hpp>
 #include "../client/guard.h"
 #include "../crypto/include/guard.h"
 #include "../net/include/guard.h"
+#include "../net/include/host.h"
 #include "cipher.h"
-#include "host.h"
 #include "key_pair.h"
 #include "packet.h"
 #include "state.h"
 #include "xchacha20poly1305.h"
-#include <asio.hpp>
 
 #include "spdlog/spdlog.h"
 

@@ -16,6 +16,7 @@ set(RUSH_NET_INCLUDES
         include/types.h
         include/event.h
         include/signals.hpp
+        include/host.h
 )
 set(RUSH_NET_SRCS
         src/guard.cpp
