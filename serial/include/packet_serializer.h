@@ -109,6 +109,7 @@ public:
         } catch (const kj::Exception &e) {
             return std::unexpected {"While deserializing data exception was thrown: " + std::string {e.getDescription().cStr()}};
         }
+        assert(0 && "Unreachable");
     }
 };
 

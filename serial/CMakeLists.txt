@@ -12,6 +12,13 @@ FetchContent_Declare(
 
 set(UNITY_BUILD_V ${CMAKE_UNITY_BUILD})
 set(CMAKE_UNITY_BUILD OFF)
+if(TARGET capnp)
+    get_target_property(CAPNP_OPTS capnp COMPILE_OPTIONS)
+    if(CAPNP_OPTS)
+        list(REMOVE_ITEM CAPNP_OPTS "-flto")
+        set_target_properties(capnp PROPERTIES COMPILE_OPTIONS "${CAPNP_OPTS}")
+    endif()
+endif()
 
 FetchContent_MakeAvailable(capnproto)
 

@@ -50,6 +50,16 @@ namespace net {
                    std::memcmp(data.data(), c_confirm_magic, sizeof(c_confirm_magic)) == 0;
         }
     }
+    template<crypto::side side>
+    static constexpr bool is_confirm(const std::span<const u8> &data) {
+        if constexpr (side == crypto::side::CLIENT) {
+            return data.size() == sizeof(s_confirm_magic) &&
+                   std::memcmp(data.data(), s_confirm_magic, sizeof(s_confirm_magic)) == 0;
+        } else {
+            return data.size() == sizeof(c_confirm_magic) &&
+                   std::memcmp(data.data(), c_confirm_magic, sizeof(c_confirm_magic)) == 0;
+        }
+    }
 
     class state {
     public:
@@ -274,7 +284,7 @@ namespace net {
                 switch (sh_msg.type) {
                     case packet_type::BYTES: {
                         if (!sh_msg.bytes.empty()) {
-                            if (!session.write(sh_msg.bytes)) {
+                            if (!session.write(std::string_view(reinterpret_cast<const char *>(sh_msg.bytes.data()), sh_msg.bytes.size()))) {
                                 spdlog::error("Failed to write.");
                                 return transition::keep();
                             }
