@@ -49,6 +49,16 @@ namespace net {
                    std::memcmp(data.data(), c_confirm_magic, sizeof(c_confirm_magic)) == 0;
         }
     }
+    template<crypto::side side>
+    static constexpr bool is_confirm(const std::span<const u8> &data) {
+        if constexpr (side == crypto::side::CLIENT) {
+            return data.size() == sizeof(s_confirm_magic) &&
+                   std::memcmp(data.data(), s_confirm_magic, sizeof(s_confirm_magic)) == 0;
+        } else {
+            return data.size() == sizeof(c_confirm_magic) &&
+                   std::memcmp(data.data(), c_confirm_magic, sizeof(c_confirm_magic)) == 0;
+        }
+    }
 
     class state {
     public:
@@ -138,6 +148,10 @@ namespace net {
             std::string reason(bytes.begin(), bytes.end());
             return {disconnect_t{std::move(reason)}};
         }
+        static constexpr transition_t disconnect(const std::span<const u8> &bytes) noexcept {
+            std::string reason(bytes.begin(), bytes.end());
+            return {disconnect_t{std::move(reason)}};
+        }
         static constexpr transition_t establish(crypto::cipher cipher) noexcept {
             return {establish_t{std::move(cipher)}};
         }
@@ -201,8 +215,8 @@ namespace net {
                 auto encryptor = std::make_unique<crypto::xchacha20poly1305>(*sk);
                 auto cipher = crypto::cipher(std::move(encryptor));
 
-                const auto confirm = shell_message{packet_type::BYTES,
-                                                   std::vector(c_confirm_magic, c_confirm_magic + sizeof(c_confirm_magic))};
+                constexpr auto confirm = shell_message{packet_type::BYTES,
+                                                   std::span(c_confirm_magic, c_confirm_magic + sizeof(c_confirm_magic))};
                 const auto encrypted = cipher.encrypt(capnp_array_to_span(serial::packet_serializer::serialize(confirm)));
                 if (!encrypted) [[unlikely]] {
                     if (retries++ > max_retries) {

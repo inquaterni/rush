@@ -55,8 +55,7 @@ namespace tunnel {
                 return;
             }
 
-            const auto data = std::vector<net::u8>{self->m_buffer.data(), self->m_buffer.data() + n};
-            const auto pkt = net::shell_message{net::packet_type::BYTES, data};
+            const auto pkt = net::shell_message{net::packet_type::BYTES, self->m_buffer, n};
             const auto words = serial::packet_serializer::serialize(pkt);
             const auto encrypted = self->m_cipher.encrypt(net::capnp_array_to_span(words));
             if (!encrypted) [[unlikely]] {
@@ -96,8 +95,7 @@ namespace tunnel {
                     if (!msg)
                         break;
 
-                    const auto pkt = net::shell_message{net::packet_type::SIGNAL,
-                                                        std::vector<net::u8>{msg->begin(), msg->end()}};
+                    const auto pkt = net::shell_message{net::packet_type::SIGNAL, *msg};
                     const auto words = serial::packet_serializer::serialize(pkt);
                     const auto encrypted = self->m_cipher.encrypt(net::capnp_array_to_span(words));
                     if (!encrypted) [[unlikely]] {

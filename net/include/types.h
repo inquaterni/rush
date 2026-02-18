@@ -7,7 +7,7 @@
 #include <memory>
 #include <vector>
 #include <span>
-#include "../../cmake-build-debug/_deps/capnproto-src/c++/src/capnp/compiler/grammar.capnp.h"
+#include <capnp/common.h>
 #include "packet_deleter.h"
 
 namespace net {

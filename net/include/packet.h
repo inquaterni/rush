@@ -24,16 +24,22 @@ namespace net {
 
     struct shell_message {
         packet_type type;
-        std::vector<u8> bytes;
+        std::span<const u8> bytes;
 
-        explicit constexpr shell_message(const packet_type type, const std::vector<u8> &data) noexcept :
+        constexpr shell_message(const packet_type type, const std::span<const u8> data) noexcept :
             type(type), bytes(data) {}
-        explicit constexpr shell_message(const packet_type type, std::vector<u8> &&data) noexcept :
-            type(type), bytes(std::forward<std::vector<u8>>(data)) {}
-        explicit constexpr shell_message(const packet_type type, const capnp::Data::Reader &reader) noexcept
-        : type(type) {
-            bytes.assign(reader.begin(), reader.end());
-        }
+        constexpr shell_message(const packet_type type, std::vector<u8> &data) noexcept :
+            type(type), bytes(data) {}
+        template <std::size_t N>
+        constexpr shell_message(const packet_type type, std::array<u8, N> &data) noexcept :
+            type(type), bytes(data) {}
+        template <std::size_t N>
+        constexpr shell_message(const packet_type type, std::array<u8, N> &data, std::size_t n) noexcept :
+            type(type), bytes(data.data(), n) {}
+        constexpr shell_message(const packet_type type, const capnp::Data::Reader &reader) noexcept
+        : type(type), bytes(reader.asBytes()) {}
+        constexpr shell_message(const packet_type type, const std::string_view view) noexcept :
+            type(type), bytes(reinterpret_cast<const u8*>(view.data()), view.size()) {}
     };
     struct handshake_packet {
         constexpr static auto type = packet_type::HANDSHAKE;
