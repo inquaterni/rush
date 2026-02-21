@@ -83,9 +83,6 @@ int main(const int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-
-    spdlog::info("Connected. Sending handshake...");
-
     asio::steady_timer timer(io_ctx);
 
     std::unique_ptr<net::client_context> ctx {nullptr};
@@ -102,6 +99,7 @@ int main(const int argc, char **argv) {
 
             const auto ec = std::visit<std::optional<asio::error_code>>(net::overloaded{
                 [&](const net::connect_event &) constexpr {
+                    spdlog::info("Connected. Sending handshake...");
                     if (!client->send(net::handshake_packet{keys->cpublic_key()})) [[unlikely]] {
                         spdlog::error("Failed to send handshake.");
                         return std::nullopt;
@@ -115,7 +113,8 @@ int main(const int argc, char **argv) {
                 },
                 [&](net::disconnect_event &) constexpr {
                     if (term.is_raw()) term.disable_raw_mode();
-                    spdlog::info("Disconnected.");
+                    if (ctx) spdlog::info("Disconnected.");
+                    else spdlog::info("Could not connect to remote address.");
                     ctx.reset();
                     io_ctx.stop();
                     return asio::error::operation_aborted;

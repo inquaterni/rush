@@ -218,9 +218,9 @@ namespace net {
     }
     inline auto conn_confirm::handle(const std::shared_ptr<host> &h, receive_event &e,
                                      const crypto::cipher &c) const noexcept {
-        // if (std::chrono::steady_clock::now() - confirm_start_point > max_duration) {
-        //     return transition::disconnect("Timeout reached.");
-        // }
+        if (std::chrono::steady_clock::now() - confirm_start_point > max_duration) {
+            return transition::disconnect("Timeout reached.");
+        }
         const auto decrypted = c.decrypt(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
