@@ -12,21 +12,14 @@ FetchContent_Declare(
 
 set(UNITY_BUILD_V ${CMAKE_UNITY_BUILD})
 set(CMAKE_UNITY_BUILD OFF)
-if(TARGET capnp)
-    get_target_property(CAPNP_OPTS capnp COMPILE_OPTIONS)
-    get_target_property(CAPNP_LINK_OPTS capnp LINK_OPTIONS)
-    if(CAPNP_OPTS)
-        list(REMOVE_ITEM CAPNP_OPTS "-flto")
-        list(REMOVE_ITEM CAPNP_LINK_OPTS "-flto")
-        set_target_properties(capnp PROPERTIES COMPILE_OPTIONS "${CAPNP_OPTS}")
-        set_target_properties(capnp PROPERTIES LINK_OPTIONS "${CAPNP_LINK_OPTS}")
-    endif()
-    set_target_properties(capnp PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
-endif()
 
 FetchContent_MakeAvailable(capnproto)
 
 set(CMAKE_UNITY_BUILD ${UNITY_BUILD_V})
+
+if(TARGET capnp_tool)
+    set_target_properties(capnp_tool PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+endif()
 
 CAPNP_GENERATE_CPP(CAPNP_SRCS CAPNP_HDRS schemas/packet.capnp)
 
