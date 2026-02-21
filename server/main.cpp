@@ -54,6 +54,7 @@ int main() {
 
             std::visit(net::overloaded{
                 [&](const net::connect_event &ce) constexpr {
+                    spdlog::info("Peer connected. Waiting for handshake.");
                     ce.peer()->data = static_cast<void *>(new net::peer_context{*host, net::handshake{}, *keys, io_ctx});
                 },
                 [&](net::receive_event &re) constexpr {

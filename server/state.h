@@ -218,9 +218,9 @@ namespace net {
     }
     inline auto conn_confirm::handle(const std::shared_ptr<host> &h, receive_event &e,
                                      const crypto::cipher &c) const noexcept {
-        if (std::chrono::steady_clock::now() - confirm_start_point > max_duration) {
-            return transition::disconnect("Timeout reached.");
-        }
+        // if (std::chrono::steady_clock::now() - confirm_start_point > max_duration) {
+        //     return transition::disconnect("Timeout reached.");
+        // }
         const auto decrypted = c.decrypt(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
@@ -236,8 +236,8 @@ namespace net {
         if (!is_confirm<crypto::side::SERVER>(sh_msg->bytes)) {
             return transition::keep();
         }
-        const auto s_pkt = shell_message{packet_type::BYTES,
-                                         std::vector(s_confirm_magic, s_confirm_magic + sizeof(s_confirm_magic))};
+        constexpr auto s_pkt = shell_message{packet_type::BYTES,
+                                         std::span(s_confirm_magic, s_confirm_magic + sizeof(s_confirm_magic))};
         const auto words = serial::packet_serializer::serialize(s_pkt);
         const auto encrypted = c.encrypt(capnp_array_to_span(words));
         if (!encrypted) [[unlikely]] {
@@ -346,10 +346,12 @@ namespace net {
                 this->m_host->disconnect(e.peer());
             },
             [&] (establish_t &est) constexpr {
+                spdlog::info("Established connection with the peer {}. Waiting on confirmation.", static_cast<void *>(this));
                 this->cipher = std::make_shared<crypto::cipher>(std::move(est.cipher));
                 this->state = conn_confirm {};
             },
             [&] (const activate_session_t &act) constexpr {
+                spdlog::info("Connection confirmed. Initializing session...");
                 auto exp_sess = pty::session::create_unique(act.username, act.password);
                 if (!exp_sess) {
                     spdlog::error("Failed to create pty session: {}", exp_sess.error());
