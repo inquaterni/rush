@@ -6,11 +6,11 @@
 #define STATE_H
 #include <memory>
 
-#include "tunnel_session.h"
 #include "client.h"
 #include "guard.h"
 #include "key_pair.h"
 #include "keys_factory.h"
+#include "tunnel_session.h"
 #include "xchacha20poly1305.h"
 
 namespace crypto {
@@ -118,7 +118,7 @@ namespace net {
         constexpr auth() noexcept = default;
 
         [[nodiscard]]
-        auto handle(const std::shared_ptr<client> &c, const receive_event &e, const crypto::cipher &cipher,
+        auto handle(const std::shared_ptr<client> &c, receive_event &e, const crypto::cipher &cipher,
                     std::string_view user) noexcept;
     private:
         int retries{0};
@@ -302,12 +302,12 @@ namespace net {
         }, *pkt);
     }
     // ReSharper disable once CppMemberFunctionMayBeStatic
-    inline auto auth::handle(const std::shared_ptr<client> &c, const receive_event &e, const crypto::cipher &cipher, const std::string_view user) noexcept {
-        const auto decrypted = cipher.decrypt(e.payload());
+    inline auto auth::handle(const std::shared_ptr<client> &c, receive_event &e, const crypto::cipher &cipher, const std::string_view user) noexcept {
+        const auto decrypted = cipher.decrypt_inplace(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
         }
-        const auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(*decrypted));
+        const auto pkt = serial::packet_serializer::deserialize(u8_span_to_word_span(*decrypted));
         if (!pkt) [[unlikely]] {
             return transition::keep();
         }
@@ -316,7 +316,7 @@ namespace net {
                 switch (sh_msg.type) {
                     case packet_type::AUTH_RESPONSE: {
                         if (!is_confirm<crypto::side::CLIENT>(sh_msg.bytes)) {
-                            spdlog::info(std::string{sh_msg.bytes.begin(), sh_msg.bytes.end()});
+                            spdlog::info(std::string_view{reinterpret_cast<const char *>(sh_msg.bytes.data()), sh_msg.bytes.size()});
                             if (retries++ > max_retries) {
                                 return transition::disconnect("Maximum retries exceeded.");
                             }
@@ -436,6 +436,7 @@ namespace net {
                 this->state = conn_confirm {};
             },
             [&] (activate_session_t &) constexpr {
+                spdlog::info("Going raw! No logs from here.");
                 if (!this->m_guard.enable_raw_mode()) {
                     spdlog::error("Failed to enable raw mode.");
                     this->m_client->disconnect();

@@ -31,6 +31,13 @@ namespace crypto {
             return encryptor->encrypt(message);
         }
         [[nodiscard]]
+        constexpr std::expected<std::span<u8>, std::string> decrypt_inplace(const std::span<u8> &message) const {
+            if (!encryptor) {
+                return std::unexpected { "Encryptor pointer is null" };
+            }
+            return encryptor->decrypt_inplace(message);
+        }
+        [[nodiscard]]
         constexpr std::expected<std::vector<u8>, std::string> encrypt(const std::vector<u8> &message) const {
             if (!encryptor) {
                 return std::unexpected { "Encryptor pointer is null" };

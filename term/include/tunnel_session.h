@@ -43,11 +43,13 @@ namespace tunnel {
     };
     constexpr void tunnel_session::do_read_stdin() noexcept {
         auto self = shared_from_this();
-        m_stream.async_read_some(asio::buffer(m_buffer, 4096), [self](const std::error_code ec, const std::size_t n) {
-            if (ec)
+        m_stream.async_read_some(asio::buffer(m_buffer, m_buffer.size()), [self](const std::error_code ec, const std::size_t n) {
+            if (ec) {
                 return;
-            if (n <= 0)
+            }
+            if (n <= 0) {
                 return;
+            }
             if (n == 1 && self->m_buffer[0] == 0x04) {
                 spdlog::info("Ctrl+D. Closing.");
                 self->stop();
@@ -59,10 +61,10 @@ namespace tunnel {
             const auto words = serial::packet_serializer::serialize(pkt);
             const auto encrypted = self->m_cipher.encrypt(net::capnp_array_to_span(words));
             if (!encrypted) [[unlikely]] {
-                self->do_read_stdin();
+                return self->do_read_stdin();
             }
             auto _ = self->m_client->send(*encrypted);
-            self->do_read_stdin();
+            return self->do_read_stdin();
         });
     }
     constexpr void tunnel_session::do_wait_signal() noexcept {
@@ -106,7 +108,7 @@ namespace tunnel {
                 default:
                     break;
             }
-            self->do_wait_signal();
+            return self->do_wait_signal();
         });
     }
     constexpr void tunnel_session::start() noexcept {

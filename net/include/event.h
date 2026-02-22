@@ -76,6 +76,7 @@ namespace net {
         [[nodiscard]] constexpr ENetPeer *peer() { return _peer; }
         [[nodiscard]] constexpr u8 channel_id() const { return _channel_id; }
         [[nodiscard]] constexpr std::span<const u8> payload() const { return std::span<const u8> {packet->data, packet->dataLength}; }
+        [[nodiscard]] constexpr std::span<u8> payload() { return std::span {packet->data, packet->dataLength}; }
 
     private:
         ENetPeer *_peer;

@@ -355,18 +355,15 @@ namespace net {
                 auto exp_sess = pty::session::create_unique(act.username, act.password);
                 if (!exp_sess) {
                     spdlog::error("Failed to create pty session: {}", exp_sess.error());
-                    const auto pkt = shell_message {packet_type::AUTH_RESPONSE, std::vector<u8> {exp_sess.error().begin(), exp_sess.error().end()}};
+                    const auto pkt = shell_message {packet_type::AUTH_RESPONSE, std::span {reinterpret_cast<const u8 *>(exp_sess.error().data()), exp_sess.error().size()}};
                     const auto words = serial::packet_serializer::serialize(pkt);
                     const auto encrypted = cipher->encrypt(capnp_array_to_span(words));
                     if (!encrypted) [[unlikely]] {
                         spdlog::error("Failed to encrypt error message: {}", encrypted.error());
-                        // goto disconnect;
                         return;
                     }
 
                     this->m_host->send(e.peer(), *encrypted);
-                    // disconnect:
-                    // this->m_host->disconnect(e.peer());
                     return;
                 }
 

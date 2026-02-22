@@ -43,8 +43,6 @@ int main(const int argc, char **argv) {
     // 🚨🚨🚨 SINGLETON DETECTED 🚨🚨🚨
     crypto::guard::get_instance();
 
-    constexpr int poll_timeout_ms = 1;
-
     auto io_ctx = asio::io_context {};
     asio::signal_set signals(io_ctx);
     signals.add(SIGHUP);
@@ -63,7 +61,7 @@ int main(const int argc, char **argv) {
     const std::string_view user_host = argv[1];
     const auto [user, host] = split_pair(user_host, '@');
 
-    auto exp_client = net::client::create(io_ctx);
+    auto exp_client = net::client::create();
     if (!exp_client) [[unlikely]] {
         spdlog::critical("Failed to create client: {}", exp_client.error());
         return EXIT_FAILURE;
@@ -76,56 +74,49 @@ int main(const int argc, char **argv) {
     }
     auto &term = term::guard::get_instance();
 
-    client->service(poll_timeout_ms);
-
     if (!client->connect(host, 6969)) {
         spdlog::critical("Failed to connect to server. Is server running?");
         return EXIT_FAILURE;
     }
 
-    asio::steady_timer timer(io_ctx);
-
     std::unique_ptr<net::client_context> ctx {nullptr};
-    asio::co_spawn(io_ctx, [poll_timeout_ms, user, &timer, &client, &keys, &io_ctx, &ctx, &signals, &term] () -> asio::awaitable<void> {
-        while (true) {
-            auto e = client->recv();
-            if (!e) {
-                timer.expires_after(std::chrono::milliseconds(poll_timeout_ms));
-                if (const auto [ec] = co_await timer.async_wait(asio::as_tuple(asio::use_awaitable)); ec) {
-                    co_return;
-                }
-                continue;
-            }
-
-            const auto ec = std::visit<std::optional<asio::error_code>>(net::overloaded{
-                [&](const net::connect_event &) constexpr {
-                    spdlog::info("Connected. Sending handshake...");
-                    if (!client->send(net::handshake_packet{keys->cpublic_key()})) [[unlikely]] {
-                        spdlog::error("Failed to send handshake.");
-                        return std::nullopt;
-                    }
-                    ctx = std::make_unique<net::client_context>(client, net::handshake{}, *keys, io_ctx, user, signals);
-                    return std::nullopt;
-                },
-                [&](net::receive_event &re) constexpr {
-                    ctx->handle(re);
-                    return std::nullopt;
-                },
-                [&](net::disconnect_event &) constexpr {
-                    if (term.is_raw()) term.disable_raw_mode();
-                    if (ctx) spdlog::info("Disconnected.");
-                    else spdlog::info("Could not connect to remote address.");
-                    ctx.reset();
-                    io_ctx.stop();
-                    return asio::error::operation_aborted;
-                }
-            }, e.value());
-
-            if (ec) co_return;
-            co_await asio::post(asio::use_awaitable);
+    auto work_guard = asio::make_work_guard(io_ctx);
+    std::jthread pump_thread {[&io_ctx] {
+        io_ctx.run();
+    }};
+    while (true) {
+        auto e = client->service();
+        if (!e) {
+            continue;
         }
-    }, asio::detached);
 
-    io_ctx.run();
+        const auto ec = std::visit<std::optional<asio::error_code>>(net::overloaded{
+            [&](const net::connect_event &) constexpr {
+                spdlog::info("Connected. Sending handshake...");
+                if (!client->send(net::handshake_packet{keys->cpublic_key()})) [[unlikely]] {
+                    spdlog::error("Failed to send handshake.");
+                    return std::nullopt;
+                }
+                ctx = std::make_unique<net::client_context>(client, net::handshake{}, *keys, io_ctx, user, signals);
+                return std::nullopt;
+            },
+            [&](net::receive_event &re) constexpr {
+                ctx->handle(re);
+                return std::nullopt;
+            },
+            [&](net::disconnect_event &) constexpr {
+                if (term.is_raw()) term.disable_raw_mode();
+                if (ctx) spdlog::info("Disconnected.");
+                else spdlog::info("Could not connect to remote address.");
+                ctx.reset();
+                io_ctx.stop();
+                pump_thread.join();
+                client->shutdown();
+                return asio::error::operation_aborted;
+            }
+        }, e.value());
+
+        if (ec) break;
+    }
     return EXIT_SUCCESS;
 }
