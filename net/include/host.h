@@ -4,9 +4,6 @@
 
 #ifndef SERVER_H
 #define SERVER_H
-#include <asio/detail/descriptor_ops.hpp>
-#include <asio/io_context.hpp>
-#include <asio/steady_timer.hpp>
 #include <expected>
 #include <memory>
 #include <string>
@@ -21,7 +18,29 @@
 #include "packet_serializer.h"
 
 namespace net {
-    class host: public std::enable_shared_from_this<host> {
+    struct packet_data_ {
+        std::vector<u8> data;
+        ENetPeer *peer {nullptr};
+        u32 flags{};
+        u8 channel{};
+
+        packet_data_(std::vector<u8> &&data, ENetPeer *peer, const u32 flags, const u8 channel) noexcept :
+            data(std::forward<std::vector<u8>>(data)), peer(peer), flags(flags), channel(channel) {}
+
+        packet_data_() = default;
+    };
+
+    struct disconnect {
+        ENetPeer *peer {nullptr};
+        u32 data;
+
+        explicit disconnect(ENetPeer *peer, const u32 data = 0) noexcept
+        : peer(peer), data(data) {}
+    };
+
+    using packet_data = std::variant<packet_data_, disconnect>;
+
+    class host {
     public:
         using host_type = std::unique_ptr<ENetHost, host_deleter>;
         static constinit inline short max_clients = 32;
@@ -29,36 +48,31 @@ namespace net {
 
         virtual ~host() = default;
 
-        explicit constexpr host(host_type && /* host */, asio::io_context & /* ctx */) noexcept;
+        explicit constexpr host(host_type && /* host */) noexcept;
 
         constexpr static std::expected<std::shared_ptr<host>, std::string>
-        create(in6_addr /* address */, int /* port */, asio::io_context & /* ctx */) noexcept;
-        constexpr void service(int timeout = 16) noexcept;
-        constexpr void do_service_step(int timeout, const std::error_code &ec) noexcept;
-        constexpr std::expected<event, std::string> recv() noexcept;
+        create(in6_addr /* address */, int /* port */) noexcept;
+        [[nodiscard]]
+        constexpr std::expected<event, std::string> service(int timeout = 1000) noexcept;
         virtual constexpr bool send(ENetPeer *peer, const packet &pkt, u8 channel_id = 0,
-                            u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE,
-                            bool flush = true) const;
-        virtual constexpr bool send(ENetPeer *peer, std::span<const u8> data, u8 channel_id = 0,
-            u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE,
-            bool flush = true) const;
-        virtual constexpr bool send(ENetPeer *peer, const std::vector<u8> &data, u8 channel_id = 0,
-            u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE,
-            bool flush = true) const;
-        virtual constexpr void disconnect(ENetPeer *peer) const noexcept;
+                            u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE) noexcept;
+        virtual constexpr bool send(ENetPeer *peer, std::vector<u8> &&data, u8 channel_id = 0,
+            u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE) noexcept;
+        virtual constexpr void disconnect(ENetPeer *peer) noexcept;
+        constexpr void send_loop() noexcept;
+        constexpr void shutdown() noexcept;
+        constexpr int enet_host_service_locked(ENetHost *host, ENetEvent *event, enet_uint32 timeout);
 
     protected:
+        moodycamel::ConcurrentQueue<packet_data> m_packets {};
+        std::mutex m_mutex {};
         host_type m_host;
-        mutable std::mutex m_mutex{};
-        asio::steady_timer m_timer;
-        asio::io_context &m_ctx;
-        moodycamel::ConcurrentQueue<ENetEvent> event_queue;
+        std::atomic_bool m_running = true;
     };
 
-    constexpr host::host(host_type &&host, asio::io_context &ctx) noexcept
-    : m_host(std::forward<host_type>(host)), m_timer(ctx), m_ctx(ctx) {}
-    constexpr std::expected<std::shared_ptr<host>, std::string> host::create(const in6_addr addr, const int port,
-                                                                             asio::io_context &ctx) noexcept {
+    constexpr host::host(host_type &&host) noexcept
+    : m_host(std::forward<host_type>(host)) {}
+    constexpr std::expected<std::shared_ptr<host>, std::string> host::create(const in6_addr addr, const int port) noexcept {
         if (!guard::is_initialized())
             return std::unexpected{"ENet is not initialized."};
 
@@ -79,108 +93,206 @@ namespace net {
                     "An error occurred while trying to create an ENet server host. Is this host occupied?"};
         }
 
-        return std::make_shared<host>(std::move(server_host), ctx);
+        return std::make_shared<host>(std::move(server_host));
     }
-    constexpr void host::service(const int timeout) noexcept {
-        auto self = shared_from_this();
-        m_timer.expires_after(std::chrono::milliseconds(0));
-        m_timer.async_wait([self, timeout] (const std::error_code &ec) {
-            self->do_service_step(timeout, ec);
+    constexpr std::expected<event, std::string> host::service(const int timeout) noexcept {
+        ENetEvent event;
+        while (m_running) {
+            if (const int res = enet_host_service_locked(m_host.get(), &event, timeout); res <= 0) continue;
+            switch (event.type) {
+                case ENET_EVENT_TYPE_CONNECT: {
+                    if (!event.peer) [[unlikely]]
+                        return std::unexpected{"Peer is NULL."};
+                    return connect_event::create(event.peer);
+                }
+                case ENET_EVENT_TYPE_DISCONNECT:
+                case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT: {
+                    if (!event.peer) [[unlikely]]
+                        return std::unexpected{"Peer is NULL."};
+                    return disconnect_event::create(event.peer, event.data);
+                }
+                case ENET_EVENT_TYPE_RECEIVE: {
+                    if (!event.peer) [[unlikely]]
+                        return std::unexpected{"Peer is NULL."};
+                    if (!event.packet) [[unlikely]]
+                        return std::unexpected{"Packet is NULL."};
+                    return receive_event::create(event.channelID, event.peer, event.packet);
+                }
+                default: std::unexpected{"No event received."};
+            }
+        }
+        return std::unexpected{"Host has been stopped."};
+    }
+    constexpr bool host::send(ENetPeer *peer, const packet &pkt, const u8 channel_id, const u32 flags) {
+        return m_packets.try_enqueue(packet_data_ {
+            capnp_array_to_vector(serial::packet_serializer::serialize(pkt)),
+            peer,
+            flags,
+            channel_id,
         });
     }
-    constexpr void host::do_service_step(const int timeout, const std::error_code &ec) noexcept {
-        if (ec == asio::error::operation_aborted || !m_host) return;
-
-        ENetEvent event;
-        int service_result = 0;
-
-        {
-            std::scoped_lock lock(m_mutex);
-            service_result = enet_host_service(m_host.get(), &event, timeout);
-        }
-        if (service_result > 0) {
-            event_queue.enqueue(event);
-        }
-        auto self = shared_from_this();
-        m_timer.expires_after(std::chrono::milliseconds(1));
-        m_timer.async_wait([self, timeout](const std::error_code& ec_) {
-            self->do_service_step(timeout, ec_);
+    constexpr bool host::send(ENetPeer *peer, std::vector<u8> &&data, const u8 channel_id, const u32 flags) {
+        return m_packets.try_enqueue(packet_data_ {
+            std::forward<std::vector<u8>>(data),
+            peer,
+            flags,
+            channel_id,
         });
     }
-    constexpr std::expected<event, std::string> host::recv() noexcept {
-        ENetEvent event;
-        if (!event_queue.try_dequeue(event)) {
-            return std::unexpected{"No events found."};
+    constexpr void host::disconnect(ENetPeer *peer) noexcept {
+        struct disconnect pkt{peer};
+        m_packets.try_enqueue(pkt);
+    }
+    constexpr void host::send_loop() noexcept {
+        packet_data pkt_data;
+        while (m_running) {
+            if (!m_packets.try_dequeue(pkt_data)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
+                continue;
+            }
+            std::visit(overloaded {
+                [&] (const packet_data_ &data) constexpr {
+                    if (data.peer && data.peer->state == ENET_PEER_STATE_CONNECTED) {
+                        {
+                            std::scoped_lock lock(m_mutex);
+                            if (const auto pkt = enet_packet_create(data.data.data(), data.data.size(), data.flags)) {
+                                enet_peer_send(data.peer, data.channel, pkt);
+                                enet_host_flush(m_host.get());
+                            }
+                        }
+                    }
+                },
+                [&] (const struct disconnect &data) constexpr {
+                    if (data.peer && data.peer->state == ENET_PEER_STATE_CONNECTED) {
+                        {
+                            std::scoped_lock lock(m_mutex);
+                            enet_peer_disconnect(data.peer, data.data);
+                            enet_host_flush(m_host.get());
+                        }
+                    }
+                }
+            }, pkt_data);
+        }
+    }
+    constexpr void host::shutdown() noexcept { m_running = false; }
+    constexpr int host::enet_host_service_locked(ENetHost *host, ENetEvent *event, enet_uint32 timeout) {
+        std::unique_lock lock(m_mutex);
+        enet_uint32 waitCondition;
+
+        if (event != nullptr) {
+            event->type   = ENET_EVENT_TYPE_NONE;
+            event->peer   = nullptr;
+            event->packet = nullptr;
+
+            switch (enet_protocol_dispatch_incoming_commands(host, event)) {
+                case 1:
+                    return 1;
+
+                case -1:
+                    #ifdef ENET_DEBUG
+                    perror("Error dispatching incoming packets");
+                    #endif
+
+                    return -1;
+
+                default:
+                    break;
+            }
         }
 
-        switch (event.type) {
-            case ENET_EVENT_TYPE_CONNECT: {
-                return connect_event::create(event.peer);
+        host->serviceTime = enet_time_get();
+        timeout += host->serviceTime;
+
+        do {
+            if (ENET_TIME_DIFFERENCE(host->serviceTime, host->bandwidthThrottleEpoch) >= ENET_HOST_BANDWIDTH_THROTTLE_INTERVAL) {
+                enet_host_bandwidth_throttle(host);
             }
-            case ENET_EVENT_TYPE_DISCONNECT:
-            case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT: {
-                return disconnect_event::create(event.peer, event.data);
+
+            switch (enet_protocol_send_outgoing_commands(host, event, 1)) {
+                case 1:
+                    return 1;
+
+                case -1:
+                    #ifdef ENET_DEBUG
+                    perror("Error sending outgoing packets");
+                    #endif
+
+                    return -1;
+
+                default:
+                    break;
             }
-            case ENET_EVENT_TYPE_RECEIVE: {
-                return receive_event::create(event.channelID, event.peer, event.packet);
+
+            switch (enet_protocol_receive_incoming_commands(host, event)) {
+                case 1:
+                    return 1;
+
+                case -1:
+                    #ifdef ENET_DEBUG
+                    perror("Error receiving incoming packets");
+                    #endif
+
+                    return -1;
+
+                default:
+                    break;
             }
-            default:
-                return std::unexpected{"No events found."};
-        }
-    }
-    constexpr bool host::send(ENetPeer *peer, const packet &pkt, const u8 channel_id, const u32 flags,
-                              const bool flush) const {
-        std::scoped_lock lock {m_mutex};
-        if (!m_host) [[unlikely]]
-            return false;
 
-        const auto words = serial::packet_serializer::serialize(pkt);
+            switch (enet_protocol_send_outgoing_commands(host, event, 1)) {
+                case 1:
+                    return 1;
 
-        const auto enet_pkt = enet_packet_create(words.begin(), words.size() * sizeof(capnp::word), flags);
-        if (!enet_pkt) [[unlikely]] {
-            return false;
-        }
-        enet_peer_send(peer, channel_id, enet_pkt);
-        if (flush) [[likely]]
-            enet_host_flush(m_host.get());
+                case -1:
+                    #ifdef ENET_DEBUG
+                    perror("Error sending outgoing packets");
+                    #endif
 
-        return true;
-    }
-    constexpr bool host::send(ENetPeer *peer, const std::span<const u8> data, const u8 channel_id, const u32 flags,
-                              const bool flush) const {
-        std::scoped_lock lock{m_mutex};
-        if (!m_host) [[unlikely]]
-            return false;
+                    return -1;
 
-        const auto enet_pkt = enet_packet_create(data.data(), data.size() * sizeof(u8), flags);
-        if (!enet_pkt) [[unlikely]]
-            return false;
-        enet_peer_send(peer, channel_id, enet_pkt);
-        if (flush) [[likely]]
-            enet_host_flush(m_host.get());
+                default:
+                    break;
+            }
 
-        return true;
-    }
-    constexpr bool host::send(ENetPeer *peer, const std::vector<u8> &data, const u8 channel_id, const u32 flags,
-                              const bool flush) const {
-        std::scoped_lock lock{m_mutex};
-        if (!m_host) [[unlikely]]
-            return false;
+            if (event != nullptr) {
+                switch (enet_protocol_dispatch_incoming_commands(host, event)) {
+                    case 1:
+                        return 1;
 
-        const auto enet_pkt = enet_packet_create(data.data(), data.size() * sizeof(u8), flags);
-        if (!enet_pkt) [[unlikely]]
-            return false;
-        enet_peer_send(peer, channel_id, enet_pkt);
-        if (flush) [[likely]]
-            enet_host_flush(m_host.get());
+                    case -1:
+                        #ifdef ENET_DEBUG
+                        perror("Error dispatching incoming packets");
+                        #endif
 
-        return true;
-    }
-    constexpr void host::disconnect(ENetPeer *peer) const noexcept {
-        std::scoped_lock lock {m_mutex};
-        if (!m_host || !peer)
-            return;
-        enet_peer_disconnect(peer, 0);
+                        return -1;
+
+                    default:
+                        break;
+                }
+            }
+
+            if (ENET_TIME_GREATER_EQUAL(host->serviceTime, timeout)) {
+                return 0;
+            }
+
+            do {
+                host->serviceTime = enet_time_get();
+
+                if (ENET_TIME_GREATER_EQUAL(host->serviceTime, timeout)) {
+                    return 0;
+                }
+
+                waitCondition = ENET_SOCKET_WAIT_RECEIVE | ENET_SOCKET_WAIT_INTERRUPT;
+                lock.unlock();
+                if (enet_socket_wait(host->socket, &waitCondition, ENET_TIME_DIFFERENCE(timeout, host->serviceTime)) != 0) {
+                    return -1;
+                }
+                lock.lock();
+            } while (waitCondition & ENET_SOCKET_WAIT_INTERRUPT);
+
+            host->serviceTime = enet_time_get();
+        } while (waitCondition & ENET_SOCKET_WAIT_RECEIVE);
+
+        return 0;
     }
 
 } // net

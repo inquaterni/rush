@@ -50,13 +50,6 @@ namespace tunnel {
             if (n <= 0) {
                 return;
             }
-            if (n == 1 && self->m_buffer[0] == 0x04) {
-                spdlog::info("Ctrl+D. Closing.");
-                self->stop();
-                self->m_client->disconnect();
-                return;
-            }
-
             const auto pkt = net::shell_message{net::packet_type::BYTES, self->m_buffer, n};
             const auto words = serial::packet_serializer::serialize(pkt);
             const auto encrypted = self->m_cipher.encrypt(net::capnp_array_to_span(words));

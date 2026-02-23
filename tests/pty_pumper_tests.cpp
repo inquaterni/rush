@@ -7,13 +7,13 @@
 #include "gmock/gmock-nice-strict.h"
 #include "pty_pumper.h"
 
-class fake_host : public net::host {
+class fake_host final : public net::host {
 public:
     using host::host_type;
     fake_host(fake_host &&other) noexcept
-    : host(std::forward<host_type>(other.m_host), other.m_ctx) {}
-    fake_host(host_type &&type, asio::io_context &io_context) noexcept
-    : host(std::move(type), io_context) {}
+    : host(std::forward<host_type>(other.m_host)) {}
+    explicit fake_host(host_type &&type) noexcept
+    : host(std::move(type)) {}
 
     MOCK_METHOD(bool, send, (ENetPeer *, const std::vector<net::u8> &data, net::u8, net::u32, bool), (const noexcept));
 };

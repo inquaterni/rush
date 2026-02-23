@@ -14,19 +14,15 @@
 
 #include "spdlog/spdlog.h"
 
-int main() {
+[[noreturn]] int main() {
     // 🚨🚨🚨 SINGLETON DETECTED 🚨🚨🚨
     net::guard::get_instance();
     // 🚨🚨🚨 SINGLETON DETECTED 🚨🚨🚨
     crypto::guard::get_instance();
 
-    constexpr int poll_timeout_ms = 1;
-
     auto io_ctx = asio::io_context {};
-    asio::signal_set signals(io_ctx, SIGINT, SIGTERM);
-    signals.async_wait([&io_ctx](auto, auto){ io_ctx.stop(); });
 
-    auto host = net::host::create(ENET_HOST_ANY, 6969, io_ctx);
+    auto host = net::host::create(ENET_HOST_ANY, 6969);
     if (!host) {
         spdlog::critical("Failed to create server: {}", host.error());
         return EXIT_FAILURE;
@@ -36,42 +32,45 @@ int main() {
         spdlog::critical("Failed to enroll key pair: {}", keys.error());
         return EXIT_FAILURE;
     }
-    (*host)->service(poll_timeout_ms);
     spdlog::info("Server is initialized");
 
-    asio::steady_timer timer(io_ctx);
+    std::jthread send_thread {[&host] {
+        (*host)->send_loop();
+    }};
+    auto work_guard = asio::make_work_guard(io_ctx);
+    std::jthread pump_thread {[&io_ctx] {
+        io_ctx.run();
+    }};
 
-    asio::co_spawn(io_ctx, [poll_timeout_ms, &timer, &host, &keys, &io_ctx] () -> asio::awaitable<void> {
-        while (true) {
-            auto e = (*host)->recv();
-            if (!e) {
-                timer.expires_after(std::chrono::milliseconds(poll_timeout_ms));
-                if (const auto [ec] = co_await timer.async_wait(asio::as_tuple(asio::use_awaitable)); ec) {
-                    co_return;
-                }
-                continue;
-            }
-
-            std::visit(net::overloaded{
-                [&](const net::connect_event &ce) constexpr {
-                    spdlog::info("Peer connected. Waiting for handshake.");
-                    ce.peer()->data = static_cast<void *>(new net::peer_context{*host, net::handshake{}, *keys, io_ctx});
-                },
-                [&](net::receive_event &re) constexpr {
-                    const auto ctx = static_cast<net::peer_context *>(re.peer()->data);
-                    ctx->handle(re);
-                },
-                [&](net::disconnect_event &de) constexpr {
-                    if (const auto ctx = static_cast<net::peer_context *>(de.peer()->data); ctx) {
-                        delete ctx;
-                        de.set_peer(nullptr);
-                    }
-                }}, e.value());
-
-            co_await asio::post(asio::use_awaitable);
+    asio::signal_set signals(io_ctx, SIGINT, SIGTERM);
+    signals.async_wait([&io_ctx, &host, &pump_thread, &send_thread](auto, auto) {
+        io_ctx.stop();
+        pump_thread.join();
+        (*host)->shutdown();
+        send_thread.join();
+    });
+    while (true) {
+        auto e = (*host)->service();
+        if (!e) {
+            continue;
         }
-    }, asio::detached);
 
-    io_ctx.run();
+        std::visit(net::overloaded{
+            [&](const net::connect_event &ce) constexpr {
+                spdlog::info("Peer connected. Waiting for handshake.");
+                ce.peer()->data = static_cast<void *>(new net::peer_context{*host, net::handshake{}, *keys, io_ctx});
+            },
+            [&](net::receive_event &re) constexpr {
+                const auto ctx = static_cast<net::peer_context *>(re.peer()->data);
+                ctx->handle(re);
+            },
+            [&](net::disconnect_event &de) constexpr {
+                if (const auto ctx = static_cast<net::peer_context *>(de.peer()->data); ctx) {
+                    delete ctx;
+                    de.set_peer(nullptr);
+                }
+            }}, e.value());
+
+    }
     return EXIT_SUCCESS;
 }

@@ -1014,6 +1014,12 @@ extern "C" {
     ENET_API ENetHost * enet_host_create(const ENetAddress *, size_t, size_t, enet_uint32, enet_uint32);
     ENET_API void       enet_host_destroy(ENetHost *);
     ENET_API ENetPeer * enet_host_connect(ENetHost *, const ENetAddress *, size_t, enet_uint32);
+    // ADDED: `enet_protocol_dispatch_incoming_commands` to forward definitions
+    //        `enet_protocol_receive_incoming_commands`  to forward definitions
+    //        `enet_protocol_send_outgoing_commands`     to forward definitions
+    ENET_API int        enet_protocol_receive_incoming_commands(ENetHost *host, ENetEvent *event);
+    ENET_API int        enet_protocol_dispatch_incoming_commands(ENetHost *host, ENetEvent *event);
+    ENET_API int        enet_protocol_send_outgoing_commands(ENetHost *host, ENetEvent *event, int checkForTimeouts);
     ENET_API int        enet_host_check_events(ENetHost *, ENetEvent *);
     ENET_API int        enet_host_service(ENetHost *, ENetEvent *, enet_uint32);
     ENET_API int        enet_host_send_raw(ENetHost *, const ENetAddress *, enet_uint8 *, size_t);
@@ -1604,7 +1610,8 @@ extern "C" {
         }
     }
 
-    static int enet_protocol_dispatch_incoming_commands(ENetHost *host, ENetEvent *event) {
+    // Changed: static to ENET_API
+    ENET_API int enet_protocol_dispatch_incoming_commands(ENetHost *host, ENetEvent *event) {
         while (!enet_list_empty(&host->dispatchQueue)) {
             ENetPeer *peer = (ENetPeer *) enet_list_remove(enet_list_begin(&host->dispatchQueue));
             peer->flags &= ~ ENET_PEER_FLAG_NEEDS_DISPATCH;
@@ -2798,7 +2805,8 @@ extern "C" {
         return 0;
     } /* enet_protocol_handle_incoming_commands */
 
-    static int enet_protocol_receive_incoming_commands(ENetHost *host, ENetEvent *event) {
+    // Changed: static to ENET_API
+    ENET_API int enet_protocol_receive_incoming_commands(ENetHost *host, ENetEvent *event) {
         int packets;
 
         for (packets = 0; packets < 256; ++packets) {
@@ -3136,7 +3144,8 @@ extern "C" {
         return canPing;
     } /* enet_protocol_send_reliable_outgoing_commands */
 
-    static int enet_protocol_send_outgoing_commands(ENetHost *host, ENetEvent *event, int checkForTimeouts) {
+    // Changed: static to ENET_API
+    ENET_API int enet_protocol_send_outgoing_commands(ENetHost *host, ENetEvent *event, int checkForTimeouts) {
         enet_uint8 headerData[
             sizeof(ENetProtocolHeader) 
 #ifdef ENET_USE_MORE_PEERS

@@ -239,11 +239,11 @@ namespace net {
         constexpr auto s_pkt = shell_message{packet_type::BYTES,
                                          std::span(s_confirm_magic, s_confirm_magic + sizeof(s_confirm_magic))};
         const auto words = serial::packet_serializer::serialize(s_pkt);
-        const auto encrypted = c.encrypt(capnp_array_to_span(words));
+        auto encrypted = c.encrypt(capnp_array_to_span(words));
         if (!encrypted) [[unlikely]] {
             return transition::keep();
         }
-        if (!h->send(e.peer(), *encrypted)) {
+        if (!h->send(e.peer(), std::move(*encrypted))) {
             return transition::keep();
         }
 
@@ -335,11 +335,11 @@ namespace net {
                     }
                     const auto pkt = shell_message {packet_type::DISCONNECT, std::vector<u8>(d.reason.begin(), d.reason.end())};
                     const auto words = serial::packet_serializer::serialize(pkt);
-                    const auto encrypted = cipher->encrypt(capnp_array_to_span(words));
+                    auto encrypted = cipher->encrypt(capnp_array_to_span(words));
                     if (!encrypted) [[unlikely]] {
                         goto disconnect;
                     }
-                    this->m_host->send(e.peer(), *encrypted);
+                    this->m_host->send(e.peer(), std::move(*encrypted));
                 }
 
                 disconnect:
@@ -357,26 +357,26 @@ namespace net {
                     spdlog::error("Failed to create pty session: {}", exp_sess.error());
                     const auto pkt = shell_message {packet_type::AUTH_RESPONSE, std::span {reinterpret_cast<const u8 *>(exp_sess.error().data()), exp_sess.error().size()}};
                     const auto words = serial::packet_serializer::serialize(pkt);
-                    const auto encrypted = cipher->encrypt(capnp_array_to_span(words));
+                    auto encrypted = cipher->encrypt(capnp_array_to_span(words));
                     if (!encrypted) [[unlikely]] {
                         spdlog::error("Failed to encrypt error message: {}", encrypted.error());
                         return;
                     }
 
-                    this->m_host->send(e.peer(), *encrypted);
+                    this->m_host->send(e.peer(), std::move(*encrypted));
                     return;
                 }
 
                 const auto data = std::vector<u8> {s_confirm_magic, s_confirm_magic + sizeof(s_confirm_magic)};
                 const auto pkt = shell_message {packet_type::AUTH_RESPONSE, data};
                 const auto words = serial::packet_serializer::serialize(pkt);
-                const auto encrypted = cipher->encrypt(capnp_array_to_span(words));
+                auto encrypted = cipher->encrypt(capnp_array_to_span(words));
                 if (!encrypted) [[unlikely]] {
                     spdlog::error("Failed to encrypt confirmation message: {}", encrypted.error());
                     // this->m_host->disconnect(e.peer());
                     return;
                 }
-                this->m_host->send(e.peer(), *encrypted);
+                this->m_host->send(e.peer(), std::move(*encrypted));
 
                 this->session = std::move(*exp_sess);
                 this->pump = std::make_shared<pty_pumper>(

@@ -39,18 +39,23 @@ namespace net {
         constexpr void read_loop() {
             m_stream.async_read_some(asio::buffer(m_buffer),
                 [self = shared_from_this()](const std::error_code ec, const std::size_t n) {
-                    if (ec) return;
+                    if (ec) {
+                        if (self->m_host && self->m_peer) {
+                            self->m_host->disconnect(self->m_peer);
+                        }
+                        return;
+                    }
 
                     if (self->m_host) {
                         const auto data = std::vector (self->m_buffer.begin(), self->m_buffer.begin() + n);
                         const auto pkt = shell_message{packet_type::BYTES, data};
                         const auto words = serial::packet_serializer::serialize(pkt);
-                        const auto encrypted = self->m_cipher.encrypt(capnp_array_to_span(words));
-                        if (!encrypted) self->read_loop();
-                        self->m_host->send(self->m_peer, *encrypted);
+                        auto encrypted = self->m_cipher.encrypt(capnp_array_to_span(words));
+                        if (!encrypted) return self->read_loop();
+                        self->m_host->send(self->m_peer, std::move(*encrypted));
                     }
 
-                    self->read_loop();
+                    return self->read_loop();
                 }
             );
         }

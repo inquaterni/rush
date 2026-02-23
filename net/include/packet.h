@@ -6,8 +6,8 @@
 #define PACKET_H
 #include <variant>
 #include <vector>
-
 #include "../crypto/include/types.h"
+
 #include "capnp/blob.h"
 #include "types.h"
 

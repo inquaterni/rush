@@ -127,7 +127,7 @@ namespace net {
                 default: std::unexpected{"No event received."};
             }
         }
-        return std::unexpected{"Client is not running."};
+        return std::unexpected{"Client has been stopped."};
     }
 
     constexpr client::client(host &&client) noexcept :
