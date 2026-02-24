@@ -114,6 +114,7 @@ public:
         }
 #endif
         assert(0 && "Unreachable");
+        return std::unexpected {"Unreachable"};
     }
 };
 

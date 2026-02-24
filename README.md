@@ -19,9 +19,9 @@ Rush is a modern, high-performance C++23 networking project designed to demonstr
 ## Features
 
 - **Multiplexed Reliable UDP**: Built on top of **ENet**, providing connection-oriented, reliable, and sequenced packet delivery over UDP with multiple channels.
-- **Modern C++23 Architecture**: Written with the latest C++ standards in mind, utilizing `std::expected` for error handling, `std::span` for memory safety, and `constexpr` for compile-time optimizations.
-- **Asynchronous I/O**: Fully integrated with **Asio** and C++20 coroutines (`asio::awaitable`, `co_await`) for specific, non-blocking event loops.
-- **Strong Encryption**: Secure communication using **XChaCha20-Poly1305** authenticated encryption (via **libsodium**).
+- **Modern C++23 Architecture**: Written with the latest C++ standards in mind, utilizing `std::expected` for error handling, `std::span` for memory safety, and `constexpr` for compile-time optimizations. Fully compatible with `-fno-exceptions` and `-fno-rtti` builds.
+- **Asynchronous I/O**: Fully integrated with **Asio** for specific, non-blocking event loops.
+- **Strong Encryption**: Secure communication using **XChaCha20-Poly1305** authenticated encryption (via `libsodium`).
 - **Zero-Copy Serialization**: High-performance binary serialization using **Cap'n Proto**.
 - **Type-Safe Event Handling**: Clean, variant-based event dispatching system using `std::visit`.
 - **Thread-Safe**: Designed for concurrency with `moodycamel::ConcurrentQueue` and thread-safe host management. (Yet, this queue is overkill, as locks are used anyway. ( ͡° ͜ʖ ͡°))
