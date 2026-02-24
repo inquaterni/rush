@@ -66,7 +66,9 @@ public:
     }
 
     static constexpr std::expected<net::packet, std::string> deserialize(const std::span<const capnp::word> &data) {
+#if RUSH_EXCEPTIONS_ENABLED
         try {
+#endif
             capnp::FlatArrayMessageReader reader{kj::arrayPtr(data.data(), data.size())};
 
             switch (const auto packet_reader = reader.getRoot<Packet>(); packet_reader.which()) {
@@ -106,9 +108,11 @@ public:
                 }
                 default: assert(0 && "Unreachable");
             }
+#if RUSH_EXCEPTIONS_ENABLED
         } catch (const kj::Exception &e) {
             return std::unexpected {"While deserializing data exception was thrown: " + std::string {e.getDescription().cStr()}};
         }
+#endif
         assert(0 && "Unreachable");
     }
 };

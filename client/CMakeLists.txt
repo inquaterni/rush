@@ -35,6 +35,7 @@ add_executable(client
         state.h
         state.cpp
         state.h
+        global.h
 )
 
 target_include_directories(client PRIVATE ../3rdparty

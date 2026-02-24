@@ -6,21 +6,41 @@
 
 #include "../crypto/include/guard.h"
 #include "../net/include/guard.h"
-#include "guard.h"
 #include "cipher.h"
 #include "client.h"
+#include "guard.h"
 #include "key_pair.h"
-#include "keys_factory.h"
 #include "signals.hpp"
 #include "xchacha20poly1305.h"
 
 #include <sys/signalfd.h>
 
-#include "asio/as_tuple.hpp"
-#include "asio/co_spawn.hpp"
-#include "asio/detached.hpp"
-#include "asio/signal_set.hpp"
+// #include "asio/co_spawn.hpp"
+// #include "asio/signal_set.hpp"
+#include <asio/co_spawn.hpp>
+#include <asio/signal_set.hpp>
 #include "state.h"
+#include "global.h"
+
+
+#if RUSH_EXCEPTIONS_ENABLED
+#else
+namespace asio::detail {
+    template <typename Exception>
+    void throw_exception(const Exception& e) {
+        std::cerr << "[ASIO FATAL ERROR] " << e.what() << '\n';
+        std::abort();
+    }
+    template void throw_exception<asio::execution::bad_executor>(asio::execution::bad_executor const&);
+    template void throw_exception<asio::invalid_service_owner>(asio::invalid_service_owner const&);
+    template void throw_exception<std::logic_error>(std::logic_error const&);
+    template void throw_exception<std::system_error>(std::system_error const&);
+    template void throw_exception<std::out_of_range>(std::out_of_range const&);
+    template void throw_exception<std::bad_alloc>(std::bad_alloc const&);
+    template void throw_exception<asio::service_already_exists>(asio::service_already_exists const&);
+
+} // asio::detail
+#endif
 
 
 std::pair<std::string_view, std::string_view>
