@@ -20,6 +20,12 @@ set(CMAKE_UNITY_BUILD ${UNITY_BUILD_V})
 if(TARGET capnp_tool)
     set_target_properties(capnp_tool PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
 endif()
+if(TARGET capnpc_cpp)
+    set_target_properties(capnpc_cpp PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+endif()
+if(TARGET capnpc_capnp)
+    set_target_properties(capnpc_capnp PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+endif()
 
 CAPNP_GENERATE_CPP(CAPNP_SRCS CAPNP_HDRS schemas/packet.capnp)
 
