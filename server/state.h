@@ -39,7 +39,9 @@ namespace net {
     static constexpr u8 c_confirm_magic[] = "CONFIRM";
     static constexpr u8 s_confirm_magic[] = "OK";
 
-    // NOTE: `side` is one WHO CHECKS!!!!! That means: if SERVER side checks, this function checks for CLIENT magic
+    // NOTE: `is_confirm_X` checks if `data` is a valid confirmation FROM X.
+    // `is_confirm_client` checks for server-sent magic (s_confirm_magic, "OK").
+    // `is_confirm_server` checks for client-sent magic (c_confirm_magic, "CONFIRM").
     static constexpr bool is_confirm_client(const std::span<const u8> &data) {
         return data.size() == sizeof(s_confirm_magic) &&
                    std::memcmp(data.data(), s_confirm_magic, sizeof(s_confirm_magic)) == 0;
