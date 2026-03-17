@@ -40,25 +40,13 @@ namespace net {
     static constexpr u8 s_confirm_magic[] = "OK";
 
     // NOTE: `side` is one WHO CHECKS!!!!! That means: if SERVER side checks, this function checks for CLIENT magic
-    template<crypto::side side>
-    static constexpr bool is_confirm(const std::vector<u8> &data) {
-        if constexpr (side == crypto::side::CLIENT) {
-            return data.size() == sizeof(s_confirm_magic) &&
+    static constexpr bool is_confirm_client(const std::span<const u8> &data) {
+        return data.size() == sizeof(s_confirm_magic) &&
                    std::memcmp(data.data(), s_confirm_magic, sizeof(s_confirm_magic)) == 0;
-        } else {
-            return data.size() == sizeof(c_confirm_magic) &&
-                   std::memcmp(data.data(), c_confirm_magic, sizeof(c_confirm_magic)) == 0;
-        }
     }
-    template<crypto::side side>
-    static constexpr bool is_confirm(const std::span<const u8> &data) {
-        if constexpr (side == crypto::side::CLIENT) {
-            return data.size() == sizeof(s_confirm_magic) &&
-                   std::memcmp(data.data(), s_confirm_magic, sizeof(s_confirm_magic)) == 0;
-        } else {
-            return data.size() == sizeof(c_confirm_magic) &&
+    static constexpr bool is_confirm_server(const std::span<const u8> &data) {
+        return data.size() == sizeof(c_confirm_magic) &&
                    std::memcmp(data.data(), c_confirm_magic, sizeof(c_confirm_magic)) == 0;
-        }
     }
 
     class state {
@@ -198,7 +186,7 @@ namespace net {
             }
             return transition::keep();
         }
-        const auto sk = crypto::keys_factory::enroll<crypto::side::SERVER>(pair, hs->public_key);
+        const auto sk = crypto::keys_factory::enroll_sk_server(pair, hs->public_key);
         if (!sk) [[unlikely]] {
             if (retries++ > max_retries) {
                 return transition::disconnect("Maximum retries exceeded.");
@@ -233,7 +221,7 @@ namespace net {
         if (!sh_msg || sh_msg->type != packet_type::BYTES) [[unlikely]] {
             return transition::keep();
         }
-        if (!is_confirm<crypto::side::SERVER>(sh_msg->bytes)) {
+        if (!is_confirm_server(sh_msg->bytes)) {
             return transition::keep();
         }
         constexpr auto s_pkt = shell_message{packet_type::BYTES,

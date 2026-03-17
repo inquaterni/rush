@@ -39,25 +39,13 @@ namespace net {
     static constexpr u8 s_confirm_magic[] = "OK";
 
     // NOTE: `side` is one WHO CHECKS!!!!! That means: if SERVER side checks, this function checks for CLIENT magic
-    template<crypto::side side>
-    static constexpr bool is_confirm(const std::vector<u8> &data) {
-        if constexpr (side == crypto::side::CLIENT) {
-            return data.size() == sizeof(s_confirm_magic) &&
+    static constexpr bool is_confirm_client(const std::span<const u8> &data) {
+        return data.size() == sizeof(s_confirm_magic) &&
                    std::memcmp(data.data(), s_confirm_magic, sizeof(s_confirm_magic)) == 0;
-        } else {
-            return data.size() == sizeof(c_confirm_magic) &&
-                   std::memcmp(data.data(), c_confirm_magic, sizeof(c_confirm_magic)) == 0;
-        }
     }
-    template<crypto::side side>
-    static constexpr bool is_confirm(const std::span<const u8> &data) {
-        if constexpr (side == crypto::side::CLIENT) {
-            return data.size() == sizeof(s_confirm_magic) &&
-                   std::memcmp(data.data(), s_confirm_magic, sizeof(s_confirm_magic)) == 0;
-        } else {
-            return data.size() == sizeof(c_confirm_magic) &&
+    static constexpr bool is_confirm_server(const std::span<const u8> &data) {
+        return data.size() == sizeof(c_confirm_magic) &&
                    std::memcmp(data.data(), c_confirm_magic, sizeof(c_confirm_magic)) == 0;
-        }
     }
 
     class state {
@@ -204,7 +192,7 @@ namespace net {
         }
         return std::visit(overloaded {
             [&] (const handshake_packet &hs) constexpr {
-                const auto sk = crypto::keys_factory::enroll<crypto::side::CLIENT>(pair, hs.public_key);
+                const auto sk = crypto::keys_factory::enroll_sk_client(pair, hs.public_key);
                 if (!sk) [[unlikely]] {
                     if (retries++ > max_retries) {
                         return transition::disconnect("Maximum retries exceeded.");
@@ -270,7 +258,7 @@ namespace net {
             [&] (const shell_message &sh_msg) {
                 switch (sh_msg.type) {
                     case packet_type::BYTES: {
-                        if (!is_confirm<crypto::side::CLIENT>(sh_msg.bytes)) {
+                        if (!is_confirm_client(sh_msg.bytes)) {
                             return transition::keep();
                         }
 
@@ -315,7 +303,7 @@ namespace net {
             [&] (const shell_message &sh_msg) {
                 switch (sh_msg.type) {
                     case packet_type::AUTH_RESPONSE: {
-                        if (!is_confirm<crypto::side::CLIENT>(sh_msg.bytes)) {
+                        if (!is_confirm_client(sh_msg.bytes)) {
                             spdlog::info(std::string_view{reinterpret_cast<const char *>(sh_msg.bytes.data()), sh_msg.bytes.size()});
                             if (retries++ > max_retries) {
                                 return transition::disconnect("Maximum retries exceeded.");

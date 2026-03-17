@@ -45,7 +45,7 @@ int main() {
         spdlog::critical("Failed to create server: {}", host.error());
         return EXIT_FAILURE;
     }
-    auto keys = crypto::key_pair::enroll();
+    auto keys = crypto::keys_factory::enroll_key_pair();
     if (!keys) {
         spdlog::critical("Failed to enroll key pair: {}", keys.error());
         return EXIT_FAILURE;

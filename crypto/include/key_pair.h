@@ -16,9 +16,8 @@ namespace crypto {
     public:
         consteval key_pair() noexcept = default;
 
-        constexpr key_pair(pkey_t && /* public key */, skey_t && /* secret key */) noexcept;
-        [[nodiscard]]
-        static constexpr std::expected<key_pair, std::string> enroll();
+        constexpr key_pair(const pkey_t& /* public key */,
+                           const skey_t& /* secret key */) noexcept;
 
         [[nodiscard]]
         constexpr pkey_t &public_key() noexcept;
@@ -33,19 +32,8 @@ namespace crypto {
         pkey_t pub_key;
         skey_t sec_key;
     };
-    constexpr key_pair::key_pair(pkey_t &&p_key, skey_t &&s_key) noexcept :
-        pub_key(std::forward<pkey_t>(p_key)), sec_key(std::forward<skey_t>(s_key)) {}
-    constexpr std::expected<key_pair, std::string> key_pair::enroll() {
-        if (!guard::is_initialized()) {
-            return std::unexpected {"Libsodium is not initialized."};
-        }
-
-        pkey_t pub_key;
-        skey_t sec_key;
-        crypto_kx_keypair(pub_key.data(), sec_key.data());
-
-        return key_pair {std::move(pub_key), std::move(sec_key)};
-    }
+    constexpr key_pair::key_pair(const pkey_t &p_key, const skey_t &s_key) noexcept :
+        pub_key(p_key), sec_key(s_key) {}
 
     constexpr pkey_t &key_pair::public_key() noexcept { return pub_key; }
     constexpr skey_t &key_pair::secret_key() noexcept { return sec_key; }

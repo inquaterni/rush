@@ -87,7 +87,7 @@ int main(const int argc, char **argv) {
         return EXIT_FAILURE;
     }
     auto client = *exp_client;
-    auto keys = crypto::key_pair::enroll();
+    auto keys = crypto::keys_factory::enroll_key_pair();
     if (!keys) [[unlikely]] {
         spdlog::critical("Failed to enroll key pair: {}", keys.error());
         return EXIT_FAILURE;
