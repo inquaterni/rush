@@ -83,6 +83,7 @@ int main() {
        },
        [&](net::disconnect_event &de) constexpr {
            if (const auto ctx = static_cast<net::peer_context *>(de.peer()->data); ctx) {
+               spdlog::info("Peer {} disconnected.", static_cast<void *>(ctx));
                delete ctx;
                de.set_peer(nullptr);
            }

@@ -7,7 +7,7 @@
 #include "gmock/gmock-nice-strict.h"
 #include "pty_pumper.h"
 
-class fake_host final : public net::host {
+class fake_host: public net::host {
 public:
     using host::host_type;
     fake_host(fake_host &&other) noexcept
@@ -35,7 +35,13 @@ public:
     decrypt(const std::vector<crypto::u8> &ciphertext) override {
         return std::vector<crypto::u8>{ciphertext.begin(), ciphertext.end()};
     }
+    [[nodiscard]] constexpr std::expected<std::span<crypto::u8>, std::string>
+    decrypt_inplace(const std::span<crypto::u8> &) override;
 };
+constexpr std::expected<std::span<crypto::u8>, std::string>
+fake_encryption::decrypt_inplace(const std::span<crypto::u8> &ciphertext) {
+    return std::span<crypto::u8>{ciphertext.begin(), ciphertext.end()};
+}
 class fake_cipher final : public crypto::cipher {
 public:
     explicit fake_cipher(std::unique_ptr<crypto::encryption> &&encryption) : cipher(std::move(encryption)) {}
@@ -50,7 +56,7 @@ public:
 };
 class pty_pumper_tests : public testing::Test {
 public:
-    pty_pumper_tests() noexcept : ctx(asio::io_context{}), mock_host(fake_host::host_type{nullptr, net::host_deleter{}}, ctx),
+    pty_pumper_tests() noexcept : ctx(asio::io_context{}), mock_host(fake_host::host_type{nullptr, net::host_deleter{}}),
     mock_cipher(std::make_unique<fake_encryption>()) {}
 
     pty_pumper_tests(testing::StrictMock<fake_host> mock_host,
@@ -138,7 +144,7 @@ TEST_F(pty_pumper_tests, handles_pipe_closure_gracefully) {
     pumper->start();
     close(fds[1]);
     ctx.run_one();
-    EXPECT_NO_THROW();
+    // EXPECT_NO_THROW();
 }
 TEST_F(pty_pumper_tests, large_buffer) {
     using namespace std::chrono_literals;
@@ -147,5 +153,5 @@ TEST_F(pty_pumper_tests, large_buffer) {
     EXPECT_CALL(mock_host, send(testing::_, testing::_, testing::_, testing::_, testing::_)).Times(testing::AtLeast(13));
     write(fds[1], payload.data(), payload.size());
     ctx.run_for(50ms);
-    EXPECT_NO_THROW();
+    // EXPECT_NO_THROW();
 }

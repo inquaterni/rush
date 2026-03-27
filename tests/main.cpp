@@ -4,9 +4,30 @@
 
 #include <gtest/gtest.h>
 #include <sys/ioctl.h>
+#include <ranges>
+#include <asio.hpp>
 
 #include "packet_serializer.h"
 #include "session.h"
+
+#if RUSH_EXCEPTIONS_ENABLED
+#else
+namespace asio::detail {
+    template<typename Exception>
+    void throw_exception(const Exception &e) {
+        std::cerr << "[ASIO FATAL ERROR] " << e.what() << '\n';
+        std::abort();
+    }
+    template void throw_exception<asio::execution::bad_executor>(asio::execution::bad_executor const &);
+    template void throw_exception<asio::invalid_service_owner>(asio::invalid_service_owner const &);
+    template void throw_exception<std::logic_error>(std::logic_error const &);
+    template void throw_exception<std::system_error>(std::system_error const &);
+    template void throw_exception<std::out_of_range>(std::out_of_range const &);
+    template void throw_exception<std::bad_alloc>(std::bad_alloc const &);
+    template void throw_exception<asio::service_already_exists>(asio::service_already_exists const &);
+
+} // namespace asio::detail
+#endif
 
 TEST(packet_serializer_tests, handshake_round_trip) {
     crypto::pkey_t key{};
@@ -38,7 +59,7 @@ TEST(packet_serializer_tests, shell_bytes_round_trip) {
 
     const auto &decoded = std::get<net::shell_message>(*result);
     EXPECT_EQ(decoded.type, net::packet_type::BYTES);
-    EXPECT_EQ(decoded.bytes, data);
+    EXPECT_TRUE(std::ranges::equal(decoded.bytes, data));
 }
 TEST(packet_serializer_tests, shell_disconnect_round_trip) {
     const std::vector<net::u8> data{9, 8, 7};
@@ -53,7 +74,7 @@ TEST(packet_serializer_tests, shell_disconnect_round_trip) {
 
     const auto &decoded = std::get<net::shell_message>(*result);
     EXPECT_EQ(decoded.type, net::packet_type::DISCONNECT);
-    EXPECT_EQ(decoded.bytes, data);
+    EXPECT_TRUE(std::ranges::equal(decoded.bytes, data));
 }
 TEST(packet_serializer_tests, shell_signal_round_trip) {
     const std::string msg = "TERM";
@@ -69,7 +90,7 @@ TEST(packet_serializer_tests, shell_signal_round_trip) {
 
     const auto &decoded = std::get<net::shell_message>(*result);
     EXPECT_EQ(decoded.type, net::packet_type::SIGNAL);
-    EXPECT_EQ(decoded.bytes, data);
+    EXPECT_TRUE(std::ranges::equal(decoded.bytes, data));
 }
 TEST(packet_serializer_tests, auth_request_round_trip) {
     const std::string username = "user";
@@ -101,7 +122,7 @@ TEST(packet_serializer_tests, auth_response_round_trip) {
 
     const auto &decoded = std::get<net::shell_message>(*result);
     EXPECT_EQ(decoded.type, net::packet_type::AUTH_RESPONSE);
-    EXPECT_EQ(decoded.bytes, data);
+    EXPECT_TRUE(std::ranges::equal(decoded.bytes, data));
 }
 TEST(packet_serializer_tests, resize_round_trip) {
     winsize ws{};
