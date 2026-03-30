@@ -21,14 +21,14 @@ Rush is a modern, high-performance C++23 networking project designed to demonstr
 - **Multiplexed Reliable UDP**: Built on top of **ENet**, providing connection-oriented, reliable, and sequenced packet delivery over UDP with multiple channels.
 - **Modern C++23 Architecture**: Written with the latest C++ standards in mind, utilizing `std::expected` for error handling, `std::span` for memory safety, and `constexpr` for compile-time optimizations. Fully compatible with `-fno-exceptions` and `-fno-rtti` builds.
 - **Asynchronous I/O**: Fully integrated with **Asio** for specific, non-blocking event loops.
-- **Strong Encryption**: Secure communication using **XChaCha20-Poly1305** authenticated encryption (via `libsodium`).
-- **Zero-Copy Serialization**: High-performance binary serialization using **Cap'n Proto**.
+- **Strong Encryption**: Secure communication using **XChaCha20-Poly1305** authenticated encryption (via `libsodium`), executing fast **in-place decryption** routines to prevent buffer allocations.
+- **Zero-Copy Network Pipeline**: Truly zero-allocation, end-to-end message handling. Orchestrates a thread-safe **object pool** to continually recycle network buffers, directly serializes into these boundaries via **Cap'n Proto**, and hands off raw pointers to ENet using `ENET_PACKET_FLAG_NO_ALLOCATE` to avoid redundant user-space copies.
 - **Type-Safe Event Handling**: Clean, variant-based event dispatching system using `std::visit`.
 - **Thread-Safe**: Designed for concurrency with `moodycamel::ConcurrentQueue` and thread-safe host management. (Yet, this queue is overkill, as locks are used anyway. ( ͡° ͜ʖ ͡°))
 
 ## Requirements
 
-- C++23 compatible compiler (e.g., GCC 13+, Clang 16+)
+- C++23 compatible compiler (e.g., GCC 14+, Clang 18+)
 - CMake 3.31+
 - **Linux** (Windows is not supported, MacOS and other UNIX-like systems are untested)
 - **PAM Development Headers**
