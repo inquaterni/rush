@@ -15,7 +15,7 @@ namespace crypto {
     using pkey_t = std::array<u8, crypto_kx_PUBLICKEYBYTES>;
     using skey_t = std::array<u8, crypto_kx_SECRETKEYBYTES>;
     using session_key_t = std::array<u8, crypto_kx_SESSIONKEYBYTES>;
-    constexpr u64 nonce_chacha20_size = crypto_aead_chacha20poly1305_IETF_NPUBBYTES;
+    constexpr static u64 nonce_chacha20_size = crypto_aead_chacha20poly1305_IETF_NPUBBYTES;
     using nonce_chacha20_t = std::array<u8, crypto_aead_chacha20poly1305_ietf_NPUBBYTES>;
 } // crypto
 

@@ -2,8 +2,8 @@
 // Created by inquaterni on 1/7/26.
 //
 
-#ifndef SECURE_SESSION_FACTORY_H
-#define SECURE_SESSION_FACTORY_H
+#ifndef KEYS_FACTORY_H
+#define KEYS_FACTORY_H
 #include "key_pair.h"
 #include "session_keys.h"
 
@@ -50,4 +50,4 @@ namespace crypto {
 
 } // crypto
 
-#endif //SECURE_SESSION_FACTORY_H
+#endif // KEYS_FACTORY_H

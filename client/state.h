@@ -207,7 +207,8 @@ namespace net {
 
                 constexpr auto confirm = shell_message{packet_type::BYTES,
                                                    std::span(c_confirm_magic, c_confirm_magic + sizeof(c_confirm_magic))};
-                const auto encrypted = cipher.encrypt(capnp_array_to_span(serial::packet_serializer::serialize(confirm)));
+                const auto buf = serial::packet_serializer::serialize_into_pool(confirm);
+                const auto encrypted = cipher.encrypt(*buf);
                 if (!encrypted) [[unlikely]] {
                     if (retries++ > max_retries) {
                         return transition::disconnect("Maximum retries exceeded.");
@@ -248,11 +249,11 @@ namespace net {
         if (std::chrono::steady_clock::now() - confirm_start_point > max_duration) {
             return transition::disconnect("Timeout reached.");
         }
-        const auto decrypted = cipher.decrypt(e.payload());
+        const auto decrypted = cipher.decrypt_inplace(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
         }
-        const auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(*decrypted));
+        const auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(**decrypted));
         if (!pkt) [[unlikely]] {
             return transition::keep();
         }
@@ -269,8 +270,8 @@ namespace net {
                             return transition::disconnect(pwd.error());
                         }
                         const auto auth_request = auth_packet{std::string(user), std::move(*pwd)};
-                        const auto words = serial::packet_serializer::serialize(auth_request);
-                        const auto encrypted = cipher.encrypt(capnp_array_to_span(words));
+                        const auto words = serial::packet_serializer::serialize_into_pool(auth_request);
+                        const auto encrypted = cipher.encrypt(*words);
                         if (!encrypted) [[unlikely]] {
                             return transition::keep();
                         }
@@ -316,8 +317,8 @@ namespace net {
                                 return transition::disconnect(pwd.error());
                             }
                             const auto auth_request = auth_packet{std::string(user), std::move(*pwd)};
-                            const auto words = serial::packet_serializer::serialize(auth_request);
-                            const auto encrypted = cipher.encrypt(capnp_array_to_span(words));
+                            const auto words = serial::packet_serializer::serialize_into_pool(auth_request);
+                            const auto encrypted = cipher.encrypt(*words);
                             if (!encrypted) [[unlikely]] {
                                 return transition::keep();
                             }
@@ -333,8 +334,8 @@ namespace net {
                             return transition::activate_session();
                         }
                         const auto resize = resize_packet {*ws};
-                        const auto serialized = serial::packet_serializer::serialize(resize);
-                        const auto encrypted = cipher.encrypt(capnp_array_to_span(serialized));
+                        const auto serialized = serial::packet_serializer::serialize_into_pool(resize);
+                        const auto encrypted = cipher.encrypt(*serialized);
                         if (!encrypted) [[unlikely]] {
                             spdlog::warn("Failed to encrypt window size data.");
                             return transition::activate_session();
@@ -360,11 +361,11 @@ namespace net {
     // ReSharper disable once CppMemberFunctionMayBeStatic
     inline auto connected::handle(const std::shared_ptr<client> &, const receive_event &e,
                                   const crypto::cipher &cipher) const noexcept {
-        const auto decrypted = cipher.decrypt(e.payload());
+        const auto decrypted = cipher.decrypt_inplace(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
         }
-        const auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(*decrypted));
+        const auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(**decrypted));
         if (!pkt) [[unlikely]] {
             return transition::keep();
         }

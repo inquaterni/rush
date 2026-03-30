@@ -37,10 +37,18 @@ public:
     }
     [[nodiscard]] constexpr std::expected<std::span<crypto::u8>, std::string>
     decrypt_inplace(const std::span<crypto::u8> &) override;
+    [[nodiscard]] constexpr std::expected<std::shared_ptr<std::vector<crypto::u8>>, std::string>
+    decrypt_inplace(const std::span<const crypto::u8> &) override;
 };
 constexpr std::expected<std::span<crypto::u8>, std::string>
 fake_encryption::decrypt_inplace(const std::span<crypto::u8> &ciphertext) {
     return std::span<crypto::u8>{ciphertext.begin(), ciphertext.end()};
+}
+constexpr std::expected<std::shared_ptr<std::vector<crypto::u8>>, std::string>
+fake_encryption::decrypt_inplace(const std::span<const crypto::u8> &ciphertext) {
+    auto pooled = net::object_pool<std::vector<crypto::u8>>::get_instance().acquire();
+    pooled->assign(ciphertext.begin(), ciphertext.end());
+    return pooled;
 }
 class fake_cipher final : public crypto::cipher {
 public:

@@ -49,8 +49,8 @@ namespace net {
                     if (self->m_host) {
                         const auto data = std::vector (self->m_buffer.begin(), self->m_buffer.begin() + n);
                         const auto pkt = shell_message{packet_type::BYTES, data};
-                        const auto words = serial::packet_serializer::serialize(pkt);
-                        auto encrypted = self->m_cipher.encrypt(capnp_array_to_span(words));
+                        const auto words = serial::packet_serializer::serialize_into_pool(pkt);
+                        auto encrypted = self->m_cipher.encrypt(*words);
                         if (!encrypted) return self->read_loop();
                         self->m_host->send(self->m_peer, std::move(*encrypted));
                     }

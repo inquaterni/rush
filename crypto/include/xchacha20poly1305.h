@@ -26,6 +26,8 @@ namespace crypto {
         [[nodiscard]] constexpr std::expected<std::vector<u8>, std::string> decrypt(const std::vector<u8> &) override;
         [[nodiscard]] constexpr std::expected<std::span<u8>, std::string>
         decrypt_inplace(const std::span<u8> &) override;
+        [[nodiscard]] constexpr std::expected<std::shared_ptr<std::vector<u8>>, std::string>
+        decrypt_inplace(const std::span<const u8> &) override;
 
     private:
         constexpr static u64 nonce_len = crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
@@ -145,6 +147,32 @@ namespace crypto {
         }
 
         return std::span {ciphertext, decrypted_len};
+    }
+    constexpr std::expected<std::shared_ptr<std::vector<u8>>, std::string> xchacha20poly1305::decrypt_inplace(const std::span<const u8> &cipher) {
+        if (!guard::is_initialized()) {
+            return std::unexpected{"Sodium is not initialized."};
+        }
+        if (cipher.size() < nonce_len + mac_len) {
+            return std::unexpected{"Ciphertext is too small."};
+        }
+        
+        auto pooled = net::object_pool<std::vector<u8>>::get_instance().acquire();
+        const u8 *nonce = cipher.data();
+        const u8 *ciphertext = cipher.data() + nonce_len;
+        const u64 ciphertext_len = cipher.size() - nonce_len;
+        u64 decrypted_len;
+
+        pooled->resize(ciphertext_len);
+
+        const int err = crypto_aead_xchacha20poly1305_ietf_decrypt(pooled->data(), &decrypted_len, nullptr,
+                                                                   ciphertext, ciphertext_len, nullptr,
+                                                                   0, nonce, ss.rx().data());
+        if (err != 0) {
+            return std::unexpected{"Sodium decryption failed."};
+        }
+
+        pooled->resize(decrypted_len);
+        return pooled;
     }
 } // crypto
 

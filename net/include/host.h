@@ -14,18 +14,24 @@
 #include "event.h"
 #include "guard.h"
 #include "host_deleter.h"
+#include "object_pool.h"
 #include "packet.h"
 #include "packet_serializer.h"
+#if defined(TESTING)
+    #define RUSH_TEST_VIRTUAL virtual
+#else
+    #define RUSH_TEST_VIRTUAL
+#endif
 
 namespace net {
     struct packet_data_ {
-        std::vector<u8> data;
+        std::shared_ptr<std::vector<u8>> data;
         ENetPeer *peer {nullptr};
         u32 flags{};
         u8 channel{};
 
-        packet_data_(std::vector<u8> &&data, ENetPeer *peer, const u32 flags, const u8 channel) noexcept :
-            data(std::forward<std::vector<u8>>(data)), peer(peer), flags(flags), channel(channel) {}
+        packet_data_(std::shared_ptr<std::vector<u8>> data, ENetPeer *peer, const u32 flags, const u8 channel) noexcept :
+            data(std::move(data)), peer(peer), flags(flags), channel(channel) {}
 
         packet_data_() = default;
     };
@@ -45,20 +51,20 @@ namespace net {
         using host_type = std::unique_ptr<ENetHost, host_deleter>;
         static constinit inline short max_clients = 32;
         static constinit inline short max_channels = 3;
-
+#if defined(TESTING)
         virtual ~host() = default;
-
+#endif
         explicit constexpr host(host_type && /* host */) noexcept;
 
         constexpr static std::expected<std::shared_ptr<host>, std::string>
         create(in6_addr /* address */, int /* port */) noexcept;
         [[nodiscard]]
         constexpr std::expected<event, std::string> service(int timeout = 1000) noexcept;
-        virtual constexpr bool send(ENetPeer *peer, const packet &pkt, u8 channel_id = 0,
+        RUSH_TEST_VIRTUAL constexpr bool send(ENetPeer *peer, const packet &pkt, u8 channel_id = 0,
                             u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE) noexcept;
-        virtual constexpr bool send(ENetPeer *peer, std::vector<u8> &&data, u8 channel_id = 0,
+        RUSH_TEST_VIRTUAL constexpr bool send(ENetPeer *peer, std::vector<u8> &&data, u8 channel_id = 0,
             u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE) noexcept;
-        virtual constexpr void disconnect(ENetPeer *peer) noexcept;
+        RUSH_TEST_VIRTUAL constexpr void disconnect(ENetPeer *peer) noexcept;
         constexpr void send_loop() noexcept;
         constexpr void shutdown() noexcept;
         constexpr int enet_host_service_locked(ENetHost *host, ENetEvent *event, enet_uint32 timeout);
@@ -123,17 +129,19 @@ namespace net {
         }
         return std::unexpected{"Host has been stopped."};
     }
-    constexpr bool host::send(ENetPeer *peer, const packet &pkt, const u8 channel_id, const u32 flags) {
+    constexpr bool host::send(ENetPeer *peer, const packet &pkt, const u8 channel_id, const u32 flags) noexcept {
         return m_packets.try_enqueue(packet_data_ {
-            capnp_array_to_vector(serial::packet_serializer::serialize(pkt)),
+            serial::packet_serializer::serialize_into_pool(pkt),
             peer,
             flags,
             channel_id,
         });
     }
-    constexpr bool host::send(ENetPeer *peer, std::vector<u8> &&data, const u8 channel_id, const u32 flags) {
+    constexpr bool host::send(ENetPeer *peer, std::vector<u8> &&data, const u8 channel_id, const u32 flags) noexcept {
+        auto buf = object_pool<std::vector<u8>>::get_instance().acquire();
+        *buf = std::forward<std::vector<u8>>(data);
         return m_packets.try_enqueue(packet_data_ {
-            std::forward<std::vector<u8>>(data),
+            std::move(buf),
             peer,
             flags,
             channel_id,
@@ -155,7 +163,7 @@ namespace net {
                     if (data.peer && data.peer->state == ENET_PEER_STATE_CONNECTED) {
                         {
                             std::scoped_lock lock(m_mutex);
-                            if (const auto pkt = enet_packet_create(data.data.data(), data.data.size(), data.flags)) {
+                            if (const auto pkt = enet_packet_create(data.data->data(), data.data->size(), data.flags)) {
                                 enet_peer_send(data.peer, data.channel, pkt);
                                 enet_host_flush(m_host.get());
                             }

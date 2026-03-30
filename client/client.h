@@ -81,8 +81,8 @@ namespace net {
     constexpr bool client::send(const packet &pkt, const u8 channel_id, const u32 flags) const noexcept {
         if (!m_host) return false;
 
-        const auto words = serial::packet_serializer::serialize(pkt);
-        const auto p = enet_packet_create(words.asBytes().begin(), words.size() * sizeof(capnp::word), flags);
+        const auto buf = serial::packet_serializer::serialize_into_pool(pkt);
+        const auto p = enet_packet_create(buf->data(), buf->size(), flags);
         if (!p) [[unlikely]] return false;
 
         enet_peer_send(&m_host->peers[0], channel_id, p);

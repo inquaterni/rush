@@ -51,8 +51,8 @@ namespace tunnel {
                 return;
             }
             const auto pkt = net::shell_message{net::packet_type::BYTES, self->m_buffer, n};
-            const auto words = serial::packet_serializer::serialize(pkt);
-            const auto encrypted = self->m_cipher.encrypt(net::capnp_array_to_span(words));
+            const auto words = serial::packet_serializer::serialize_into_pool(pkt);
+            const auto encrypted = self->m_cipher.encrypt(*words);
             if (!encrypted) [[unlikely]] {
                 return self->do_read_stdin();
             }
@@ -73,8 +73,8 @@ namespace tunnel {
                         break;
 
                     const auto pkt = net::resize_packet{ws};
-                    const auto words = serial::packet_serializer::serialize(pkt);
-                    const auto encrypted = self->m_cipher.encrypt(net::capnp_array_to_span(words));
+                    const auto words = serial::packet_serializer::serialize_into_pool(pkt);
+                    const auto encrypted = self->m_cipher.encrypt(*words);
                     if (!encrypted) [[unlikely]] {
                         break;
                     }
@@ -91,8 +91,8 @@ namespace tunnel {
                         break;
 
                     const auto pkt = net::shell_message{net::packet_type::SIGNAL, *msg};
-                    const auto words = serial::packet_serializer::serialize(pkt);
-                    const auto encrypted = self->m_cipher.encrypt(net::capnp_array_to_span(words));
+                    const auto words = serial::packet_serializer::serialize_into_pool(pkt);
+                    const auto encrypted = self->m_cipher.encrypt(*words);
                     if (!encrypted) [[unlikely]] {
                         break;
                     }

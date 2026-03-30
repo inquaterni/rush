@@ -37,7 +37,7 @@ TEST(packet_serializer_tests, handshake_round_trip) {
 
     const net::packet original = net::handshake_packet{key};
     const auto words = serial::packet_serializer::serialize(original);
-    const std::span span{words.begin(), words.size()};
+    const auto span = net::u8_vector_to_word_span(*words);
 
     const auto result = serial::packet_serializer::deserialize(span);
     ASSERT_TRUE(result.has_value());
@@ -51,7 +51,7 @@ TEST(packet_serializer_tests, shell_bytes_round_trip) {
     const net::packet original = net::shell_message{net::packet_type::BYTES, data};
 
     const auto words = serial::packet_serializer::serialize(original);
-    const std::span span{words.begin(), words.size()};
+    const auto span = net::u8_vector_to_word_span(*words);
 
     const auto result = serial::packet_serializer::deserialize(span);
     ASSERT_TRUE(result.has_value());
@@ -66,7 +66,7 @@ TEST(packet_serializer_tests, shell_disconnect_round_trip) {
     const net::packet original = net::shell_message{net::packet_type::DISCONNECT, data};
 
     const auto words = serial::packet_serializer::serialize(original);
-    const std::span span{words.begin(), words.size()};
+    const auto span = net::u8_vector_to_word_span(*words);
 
     const auto result = serial::packet_serializer::deserialize(span);
     ASSERT_TRUE(result.has_value());
@@ -82,7 +82,7 @@ TEST(packet_serializer_tests, shell_signal_round_trip) {
     const net::packet original = net::shell_message{net::packet_type::SIGNAL, data};
 
     const auto words = serial::packet_serializer::serialize(original);
-    const std::span span{words.begin(), words.size()};
+    const auto span = net::u8_vector_to_word_span(*words);
 
     const auto result = serial::packet_serializer::deserialize(span);
     ASSERT_TRUE(result.has_value());
@@ -98,7 +98,7 @@ TEST(packet_serializer_tests, auth_request_round_trip) {
     const net::packet original = net::auth_packet{username, password};
 
     const auto words = serial::packet_serializer::serialize(original);
-    const std::span span{words.begin(), words.size()};
+    const auto span = net::u8_vector_to_word_span(*words);
 
     const auto result = serial::packet_serializer::deserialize(span);
     ASSERT_TRUE(result.has_value());
@@ -114,7 +114,7 @@ TEST(packet_serializer_tests, auth_response_round_trip) {
     const net::packet original = net::shell_message{net::packet_type::AUTH_RESPONSE, data};
 
     const auto words = serial::packet_serializer::serialize(original);
-    const std::span span{words.begin(), words.size()};
+    const auto span = net::u8_vector_to_word_span(*words);
 
     const auto result = serial::packet_serializer::deserialize(span);
     ASSERT_TRUE(result.has_value());
@@ -134,7 +134,7 @@ TEST(packet_serializer_tests, resize_round_trip) {
     const net::packet original = net::resize_packet{ws};
 
     const auto words = serial::packet_serializer::serialize(original);
-    const std::span span{words.begin(), words.size()};
+    const auto span = net::u8_vector_to_word_span(*words);
 
     const auto result = serial::packet_serializer::deserialize(span);
     ASSERT_TRUE(result.has_value());

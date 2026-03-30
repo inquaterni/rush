@@ -109,7 +109,7 @@ namespace net {
         constexpr auth() noexcept = default;
 
         [[nodiscard]]
-        auto handle(const receive_event &e, const crypto::cipher &c) const noexcept;
+        auto handle(receive_event &e, const crypto::cipher &c) const noexcept;
     };
     class connected final : public state {
     public:
@@ -119,7 +119,7 @@ namespace net {
         constexpr connected& operator=(connected&&) = default;
 
         [[nodiscard]]
-        auto handle(const std::shared_ptr<host> &h, const receive_event &e, const crypto::cipher &c, const pty::session &session) const noexcept;
+        auto handle(const std::shared_ptr<host> &h, receive_event &e, const crypto::cipher &c, const pty::session &session) const noexcept;
     };
 
     using state_t = std::variant<handshake, conn_confirm, auth, connected>;
@@ -211,11 +211,11 @@ namespace net {
         if (std::chrono::steady_clock::now() - confirm_start_point > max_duration) {
             return transition::disconnect("Timeout reached.");
         }
-        const auto decrypted = c.decrypt(e.payload());
+        const auto decrypted = c.decrypt_inplace(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
         }
-        const auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(*decrypted));
+        const auto pkt = serial::packet_serializer::deserialize(u8_span_to_word_span(*decrypted));
         if (!pkt) [[unlikely]] {
             return transition::keep();
         }
@@ -228,8 +228,8 @@ namespace net {
         }
         constexpr auto s_pkt = shell_message{packet_type::BYTES,
                                          std::span(s_confirm_magic, s_confirm_magic + sizeof(s_confirm_magic))};
-        const auto words = serial::packet_serializer::serialize(s_pkt);
-        auto encrypted = c.encrypt(capnp_array_to_span(words));
+        const auto words = serial::packet_serializer::serialize_into_pool(s_pkt);
+        auto encrypted = c.encrypt(*words);
         if (!encrypted) [[unlikely]] {
             return transition::keep();
         }
@@ -240,12 +240,12 @@ namespace net {
         return transition::to(auth{});
     }
     // ReSharper disable once CppMemberFunctionMayBeStatic
-    inline auto auth::handle(const receive_event &e, const crypto::cipher &c) const noexcept {
-        const auto decrypted = c.decrypt(e.payload());
+    inline auto auth::handle(receive_event &e, const crypto::cipher &c) const noexcept {
+        const auto decrypted = c.decrypt_inplace(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
         }
-        auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(*decrypted));
+        auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(**decrypted));
         if (!pkt) [[unlikely]] {
             return transition::keep();
         }
@@ -257,14 +257,14 @@ namespace net {
         return transition::activate_session(std::move(request->username), std::move(request->password));
     }
     // ReSharper disable once CppMemberFunctionMayBeStatic
-    inline auto connected::handle(const std::shared_ptr<host> & /* h */, const receive_event &e,
+    inline auto connected::handle(const std::shared_ptr<host> & /* h */, receive_event &e,
                                   const crypto::cipher &c,
                                   const pty::session &session) const noexcept {
-        const auto decrypted = c.decrypt(e.payload());
+        const auto decrypted = c.decrypt_inplace(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
         }
-        const auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(*decrypted));
+        const auto pkt = serial::packet_serializer::deserialize(u8_span_to_word_span(*decrypted));
         if (!pkt) [[unlikely]] {
             return transition::keep();
         }
@@ -324,8 +324,8 @@ namespace net {
                         goto disconnect;
                     }
                     const auto pkt = shell_message {packet_type::DISCONNECT, std::vector<u8>(d.reason.begin(), d.reason.end())};
-                    const auto words = serial::packet_serializer::serialize(pkt);
-                    auto encrypted = cipher->encrypt(capnp_array_to_span(words));
+                    const auto words = serial::packet_serializer::serialize_into_pool(pkt);
+                    auto encrypted = cipher->encrypt(*words);
                     if (!encrypted) [[unlikely]] {
                         goto disconnect;
                     }
@@ -346,8 +346,8 @@ namespace net {
                 if (!exp_sess) {
                     spdlog::error("Failed to create pty session: {}", exp_sess.error());
                     const auto pkt = shell_message {packet_type::AUTH_RESPONSE, std::span {reinterpret_cast<const u8 *>(exp_sess.error().data()), exp_sess.error().size()}};
-                    const auto words = serial::packet_serializer::serialize(pkt);
-                    auto encrypted = cipher->encrypt(capnp_array_to_span(words));
+                    const auto words = serial::packet_serializer::serialize_into_pool(pkt);
+                    auto encrypted = cipher->encrypt(*words);
                     if (!encrypted) [[unlikely]] {
                         spdlog::error("Failed to encrypt error message: {}", encrypted.error());
                         return;
@@ -359,8 +359,8 @@ namespace net {
 
                 const auto data = std::vector<u8> {s_confirm_magic, s_confirm_magic + sizeof(s_confirm_magic)};
                 const auto pkt = shell_message {packet_type::AUTH_RESPONSE, data};
-                const auto words = serial::packet_serializer::serialize(pkt);
-                auto encrypted = cipher->encrypt(capnp_array_to_span(words));
+                const auto words = serial::packet_serializer::serialize_into_pool(pkt);
+                auto encrypted = cipher->encrypt(*words);
                 if (!encrypted) [[unlikely]] {
                     spdlog::error("Failed to encrypt confirmation message: {}", encrypted.error());
                     // this->m_host->disconnect(e.peer());
