@@ -245,7 +245,7 @@ namespace net {
         if (!decrypted) [[unlikely]] {
             return transition::keep();
         }
-        auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(**decrypted));
+        auto pkt = serial::packet_serializer::deserialize(u8_span_to_word_span(*decrypted));
         if (!pkt) [[unlikely]] {
             return transition::keep();
         }

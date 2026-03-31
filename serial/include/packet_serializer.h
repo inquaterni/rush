@@ -77,7 +77,7 @@ public:
 
         max_size = (max_size + sizeof(capnp::word) - 1) & ~(sizeof(capnp::word) - 1);
 
-        const auto buf = net::object_pool<std::vector<net::u8>>::get_instance().acquire();
+        auto buf = net::object_pool<std::vector<net::u8>>::get_instance().acquire();
         buf->assign(max_size, 0);
 
         auto* out_words = reinterpret_cast<capnp::word*>(buf->data());
@@ -139,9 +139,9 @@ public:
         // bytes 4..7: size of segment 0 in words
         auto* table = reinterpret_cast<net::u8*>(out_words);
         table[0] = 0; table[1] = 0; table[2] = 0; table[3] = 0;
-        const uint32_t size = segments[0].size();
-        table[4] = size & 0xFF; table[5] = (size >> 8) & 0xFF;
-        table[6] = (size >> 16) & 0xFF; table[7] = (size >> 24) & 0xFF;
+        const net::u32 size = segments[0].size();
+        table[4] = size & 0xFF; table[5] = size >> 8 & 0xFF;
+        table[6] = size >> 16 & 0xFF; table[7] = size >> 24 & 0xFF;
 
         buf->resize((1 + size) * sizeof(capnp::word));
         return buf;
