@@ -10,6 +10,7 @@
 #include <kj/array.h>
 #include <span>
 #include <string>
+#include <ranges>
 #include "schemas/packet.capnp.h"
 #include "object_pool.h"
 #include "packet.h"
@@ -134,14 +135,16 @@ public:
         assert(segments.size() == 1 && "Message grew beyond 1 segment!");
 
         // Write the segment table.
-        // Word 0 contains:
-        // bytes 0..3: number of segments - 1 (which is 0)
-        // bytes 4..7: size of segment 0 in words
+        // Word 0: bytes 0..3 = number of segments - 1 (0), bytes 4..7 = size of segment 0 in words
         auto* table = reinterpret_cast<net::u8*>(out_words);
-        table[0] = 0; table[1] = 0; table[2] = 0; table[3] = 0;
+
+        std::fill_n(table, 4, net::u8{0});
+
         const net::u32 size = segments[0].size();
-        table[4] = size & 0xFF; table[5] = size >> 8 & 0xFF;
-        table[6] = size >> 16 & 0xFF; table[7] = size >> 24 & 0xFF;
+        std::ranges::copy(std::views::iota(0, 4)
+            | std::views::transform([size](const int i) constexpr {
+                return static_cast<net::u8>(size >> (i * 8));
+            }), table + 4);
 
         buf->resize((1 + size) * sizeof(capnp::word));
         return buf;
