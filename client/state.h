@@ -128,29 +128,29 @@ namespace net {
         auto handle(const std::shared_ptr<client> &c, const receive_event &e,
                     const crypto::cipher &cipher) const noexcept;
     private:
-        static constexpr void write_ansi_aware(const std::span<const u8> &bytes) noexcept {
-            std::size_t flush_start = 0;
-            bool m_in_escape {false};
-            const std::size_t size = bytes.size();
-            for (std::size_t i = 0; i < size; ++i) {
-                if (m_in_escape) {
-                    if (bytes[i] >= ansi_final_lo && bytes[i] <= ansi_final_hi) {
-                        m_in_escape = false;
-                        write(STDOUT_FILENO, bytes.data() + flush_start, i - flush_start + 1);
-                        flush_start = i + 1;
-                    }
-                } else if (bytes[i] == ansi_esc) {
-                    if (i > flush_start) {
-                        write(STDOUT_FILENO, bytes.data() + flush_start, i - flush_start);
-                    }
-                    flush_start = i;
-                    m_in_escape = true;
-                }
-            }
-            if (flush_start < bytes.size()) {
-                write(STDOUT_FILENO, bytes.data() + flush_start, bytes.size() - flush_start);
-            }
-        }
+        // static constexpr void write_ansi_aware(const std::span<const u8> &bytes) noexcept {
+        //     std::size_t flush_start = 0;
+        //     bool m_in_escape {false};
+        //     const std::size_t size = bytes.size();
+        //     for (std::size_t i = 0; i < size; ++i) {
+        //         if (m_in_escape) {
+        //             if (bytes[i] >= ansi_final_lo && bytes[i] <= ansi_final_hi) {
+        //                 m_in_escape = false;
+        //                 write(STDOUT_FILENO, bytes.data() + flush_start, i - flush_start + 1);
+        //                 flush_start = i + 1;
+        //             }
+        //         } else if (bytes[i] == ansi_esc) {
+        //             if (i > flush_start) {
+        //                 write(STDOUT_FILENO, bytes.data() + flush_start, i - flush_start);
+        //             }
+        //             flush_start = i;
+        //             m_in_escape = true;
+        //         }
+        //     }
+        //     if (flush_start < bytes.size()) {
+        //         write(STDOUT_FILENO, bytes.data() + flush_start, bytes.size() - flush_start);
+        //     }
+        // }
     };
 
     using state_t = std::variant<handshake, conn_confirm, auth, connected>;
@@ -402,7 +402,7 @@ namespace net {
             [&] (const shell_message &sh_msg) {
                 switch (sh_msg.type) {
                     case packet_type::BYTES: {
-                        write_ansi_aware(sh_msg.bytes);
+                        write(STDOUT_FILENO, sh_msg.bytes.data(), sh_msg.bytes.size());
                     } break;
                     case packet_type::DISCONNECT: {
                         transition::disconnect(sh_msg.bytes);
