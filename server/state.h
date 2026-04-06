@@ -229,7 +229,7 @@ namespace net {
         constexpr auto s_pkt = shell_message{packet_type::BYTES,
                                          std::span(s_confirm_magic, s_confirm_magic + sizeof(s_confirm_magic))};
         const auto words = serial::packet_serializer::serialize_into_pool(s_pkt);
-        auto encrypted = c.encrypt(*words);
+        auto encrypted = c.encrypt_inplace(*words);
         if (!encrypted) [[unlikely]] {
             return transition::keep();
         }
@@ -325,7 +325,7 @@ namespace net {
                     }
                     const auto pkt = shell_message {packet_type::DISCONNECT, std::vector<u8>(d.reason.begin(), d.reason.end())};
                     const auto words = serial::packet_serializer::serialize_into_pool(pkt);
-                    auto encrypted = cipher->encrypt(*words);
+                    auto encrypted = cipher->encrypt_inplace(*words);
                     if (!encrypted) [[unlikely]] {
                         goto disconnect;
                     }
@@ -347,7 +347,7 @@ namespace net {
                     spdlog::error("Failed to create pty session: {}", exp_sess.error());
                     const auto pkt = shell_message {packet_type::AUTH_RESPONSE, std::span {reinterpret_cast<const u8 *>(exp_sess.error().data()), exp_sess.error().size()}};
                     const auto words = serial::packet_serializer::serialize_into_pool(pkt);
-                    auto encrypted = cipher->encrypt(*words);
+                    auto encrypted = cipher->encrypt_inplace(*words);
                     if (!encrypted) [[unlikely]] {
                         spdlog::error("Failed to encrypt error message: {}", encrypted.error());
                         return;
@@ -360,7 +360,7 @@ namespace net {
                 const auto data = std::vector<u8> {s_confirm_magic, s_confirm_magic + sizeof(s_confirm_magic)};
                 const auto pkt = shell_message {packet_type::AUTH_RESPONSE, data};
                 const auto words = serial::packet_serializer::serialize_into_pool(pkt);
-                auto encrypted = cipher->encrypt(*words);
+                auto encrypted = cipher->encrypt_inplace(*words);
                 if (!encrypted) [[unlikely]] {
                     spdlog::error("Failed to encrypt confirmation message: {}", encrypted.error());
                     // this->m_host->disconnect(e.peer());

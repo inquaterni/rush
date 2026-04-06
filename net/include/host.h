@@ -62,8 +62,8 @@ namespace net {
         constexpr std::expected<event, std::string> service(int timeout = 1000) noexcept;
         RUSH_TEST_VIRTUAL constexpr bool send(ENetPeer *peer, const packet &pkt, u8 channel_id = 0,
                             u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE) noexcept;
-        RUSH_TEST_VIRTUAL constexpr bool send(ENetPeer *peer, std::vector<u8> &&data, u8 channel_id = 0,
-            u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE) noexcept;
+        RUSH_TEST_VIRTUAL constexpr bool send(ENetPeer *peer, std::unique_ptr<std::vector<u8>, void (*)(std::vector<u8> *)> &&data, u8 channel_id = 0,
+             u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE) noexcept;
         RUSH_TEST_VIRTUAL constexpr void disconnect(ENetPeer *peer) noexcept;
         constexpr void send_loop() noexcept;
         constexpr void shutdown() noexcept;
@@ -137,9 +137,9 @@ namespace net {
             channel_id,
         });
     }
-    constexpr bool host::send(ENetPeer *peer, std::vector<u8> &&data, const u8 channel_id, const u32 flags) noexcept {
+    constexpr bool host::send(ENetPeer *peer, std::unique_ptr<std::vector<u8>, void (*)(std::vector<u8> *)> &&data, const u8 channel_id, const u32 flags) noexcept {
         auto buf = object_pool<std::vector<u8>>::get_instance().acquire();
-        *buf = std::forward<std::vector<u8>>(data);
+        buf = std::forward<std::unique_ptr<std::vector<u8>, void (*)(std::vector<u8> *)>>(data);
         return m_packets.try_enqueue(packet_data_ {
             std::move(buf),
             peer,
@@ -175,7 +175,7 @@ namespace net {
                         {
                             std::scoped_lock lock(m_mutex);
                             enet_peer_disconnect(data.peer, data.data);
-                            enet_host_flush(m_host.get());
+                            // enet_host_flush(m_host.get());
                         }
                     }
                 }

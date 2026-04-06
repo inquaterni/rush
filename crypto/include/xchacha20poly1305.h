@@ -21,6 +21,9 @@ namespace crypto {
 
         [[nodiscard]] constexpr std::expected<std::vector<u8>, std::string> encrypt(const std::span<const u8> &) override;
         [[nodiscard]] constexpr std::expected<std::vector<u8>, std::string> encrypt(const std::vector<u8> &) override;
+        [[nodiscard]] constexpr std::expected<std::unique_ptr<std::vector<u8>, void (*)(std::vector<u8> *)>,
+                                              std::string>
+        encrypt_inplace(const std::span<const u8> &) override;
 
         [[nodiscard]] constexpr std::expected<std::vector<u8>, std::string> decrypt(const std::span<const u8> &) override;
         [[nodiscard]] constexpr std::expected<std::vector<u8>, std::string> decrypt(const std::vector<u8> &) override;
@@ -78,6 +81,28 @@ namespace crypto {
             return std::unexpected{"Sodium encryption failed."};
         }
         encrypted.resize(nonce_len + ciphertext_len);
+
+        return encrypted;
+    }
+    constexpr std::expected<std::unique_ptr<std::vector<u8>, void (*)(std::vector<u8> *)>, std::string>
+    xchacha20poly1305::encrypt_inplace(const std::span<const u8> &message) {
+        if (!guard::is_initialized()) {
+            return std::unexpected{"Sodium is not initialized."};
+        }
+        auto encrypted = net::object_pool<std::vector<u8>>::get_instance().acquire();
+        encrypted->resize(message.size() + nonce_len + mac_len);
+
+        randombytes_buf(encrypted->data(), nonce_len);
+
+        u64 ciphertext_len;
+        const int err = crypto_aead_xchacha20poly1305_ietf_encrypt(encrypted->data() + nonce_len, &ciphertext_len,
+                                                                   message.data(), message.size(), nullptr, 0, nullptr,
+                                                                   encrypted->data(), ss.tx().data());
+
+        if (err != 0) {
+            return std::unexpected{"Sodium encryption failed."};
+        }
+        encrypted->resize(nonce_len + ciphertext_len);
 
         return encrypted;
     }

@@ -52,11 +52,11 @@ namespace tunnel {
             }
             const auto pkt = net::shell_message{net::packet_type::BYTES, self->m_buffer, n};
             const auto words = serial::packet_serializer::serialize_into_pool(pkt);
-            const auto encrypted = self->m_cipher.encrypt(*words);
+            const auto encrypted = self->m_cipher.encrypt_inplace(std::span(*words));
             if (!encrypted) [[unlikely]] {
                 return self->do_read_stdin();
             }
-            auto _ = self->m_client->send(*encrypted);
+            auto _ = self->m_client->send(std::move(**encrypted));
             return self->do_read_stdin();
         });
     }
@@ -74,11 +74,11 @@ namespace tunnel {
 
                     const auto pkt = net::resize_packet{ws};
                     const auto words = serial::packet_serializer::serialize_into_pool(pkt);
-                    const auto encrypted = self->m_cipher.encrypt(*words);
+                    const auto encrypted = self->m_cipher.encrypt_inplace(std::span(*words));
                     if (!encrypted) [[unlikely]] {
                         break;
                     }
-                    auto _ = self->m_client->send(*encrypted, 1);
+                    auto _ = self->m_client->send(std::move(**encrypted), 1);
                 } break;
                 case SIGHUP:
                 case SIGINT:
@@ -92,11 +92,11 @@ namespace tunnel {
 
                     const auto pkt = net::shell_message{net::packet_type::SIGNAL, *msg};
                     const auto words = serial::packet_serializer::serialize_into_pool(pkt);
-                    const auto encrypted = self->m_cipher.encrypt(*words);
+                    const auto encrypted = self->m_cipher.encrypt_inplace(std::span(*words));
                     if (!encrypted) [[unlikely]] {
                         break;
                     }
-                    auto _ = self->m_client->send(*encrypted);
+                    auto _ = self->m_client->send(std::move(**encrypted));
                 } break;
                 default:
                     break;

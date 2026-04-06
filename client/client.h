@@ -35,8 +35,8 @@ namespace net {
         constexpr bool send(const packet &pkt, u8 channel_id = 0,
                   u32 flags = ENET_PACKET_FLAG_NO_ALLOCATE | ENET_PACKET_FLAG_RELIABLE) const noexcept;
         [[nodiscard]]
-        constexpr bool send(const std::vector<u8> &pkt, u8 channel_id = 0,
-                  u32 flags = ENET_PACKET_FLAG_NO_ALLOCATE | ENET_PACKET_FLAG_RELIABLE) const noexcept;
+        constexpr bool send(std::vector<u8> &&pkt, u8 channel_id = 0,
+                            u32 flags = ENET_PACKET_FLAG_NO_ALLOCATE | ENET_PACKET_FLAG_RELIABLE) const noexcept;
         [[nodiscard]]
         constexpr std::expected<event, std::string> service(int timeout = 1000) const noexcept;
         explicit constexpr client(host && /* client host */) noexcept;
@@ -90,7 +90,7 @@ namespace net {
 
         return true;
     }
-    constexpr bool client::send(const std::vector<u8> &pkt, const u8 channel_id, const u32 flags) const noexcept {
+    constexpr bool client::send(std::vector<u8> &&pkt, const u8 channel_id, const u32 flags) const noexcept {
         if (!m_host) return false;
 
         const auto p = enet_packet_create(pkt.data(), pkt.size(), flags);

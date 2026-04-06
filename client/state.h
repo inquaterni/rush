@@ -38,6 +38,10 @@ namespace net {
     static constexpr u8 c_confirm_magic[] = "CONFIRM";
     static constexpr u8 s_confirm_magic[] = "OK";
 
+    static constexpr u8 ansi_esc = 0x1B;
+    static constexpr u8 ansi_final_lo = 0x40;
+    static constexpr u8 ansi_final_hi = 0x7E;
+
     // NOTE: `is_confirm_X` checks if `data` is a valid confirmation FROM X.
     // `is_confirm_client` checks for server-sent magic (s_confirm_magic, "OK").
     // `is_confirm_server` checks for client-sent magic (c_confirm_magic, "CONFIRM").
@@ -69,7 +73,7 @@ namespace net {
     };
     class handshake final : public state {
     public:
-        inline static constinit auto max_duration = 500ms;
+        inline static constinit auto max_duration = 250ms;
         inline static constinit auto max_retries = 3;
 
         constexpr handshake() noexcept = default;
@@ -123,6 +127,30 @@ namespace net {
         [[nodiscard]]
         auto handle(const std::shared_ptr<client> &c, const receive_event &e,
                     const crypto::cipher &cipher) const noexcept;
+    private:
+        static constexpr void write_ansi_aware(const std::span<const u8> &bytes) noexcept {
+            std::size_t flush_start = 0;
+            bool m_in_escape {false};
+            const std::size_t size = bytes.size();
+            for (std::size_t i = 0; i < size; ++i) {
+                if (m_in_escape) {
+                    if (bytes[i] >= ansi_final_lo && bytes[i] <= ansi_final_hi) {
+                        m_in_escape = false;
+                        write(STDOUT_FILENO, bytes.data() + flush_start, i - flush_start + 1);
+                        flush_start = i + 1;
+                    }
+                } else if (bytes[i] == ansi_esc) {
+                    if (i > flush_start) {
+                        write(STDOUT_FILENO, bytes.data() + flush_start, i - flush_start);
+                    }
+                    flush_start = i;
+                    m_in_escape = true;
+                }
+            }
+            if (flush_start < bytes.size()) {
+                write(STDOUT_FILENO, bytes.data() + flush_start, bytes.size() - flush_start);
+            }
+        }
     };
 
     using state_t = std::variant<handshake, conn_confirm, auth, connected>;
@@ -208,7 +236,7 @@ namespace net {
                 constexpr auto confirm = shell_message{packet_type::BYTES,
                                                    std::span(c_confirm_magic, c_confirm_magic + sizeof(c_confirm_magic))};
                 const auto buf = serial::packet_serializer::serialize_into_pool(confirm);
-                const auto encrypted = cipher.encrypt(*buf);
+                const auto encrypted = cipher.encrypt_inplace(std::span(*buf));
                 if (!encrypted) [[unlikely]] {
                     if (retries++ > max_retries) {
                         return transition::disconnect("Maximum retries exceeded.");
@@ -216,7 +244,7 @@ namespace net {
 
                     return transition::keep();
                 }
-                if (!c->send(*encrypted)) [[unlikely]] {
+                if (!c->send(std::move(**encrypted))) [[unlikely]] {
                     if (retries++ > max_retries) {
                         return transition::disconnect("Maximum retries exceeded.");
                     }
@@ -271,11 +299,11 @@ namespace net {
                         }
                         const auto auth_request = auth_packet{std::string(user), std::move(*pwd)};
                         const auto words = serial::packet_serializer::serialize_into_pool(auth_request);
-                        const auto encrypted = cipher.encrypt(*words);
+                        const auto encrypted = cipher.encrypt_inplace(std::span(*words));
                         if (!encrypted) [[unlikely]] {
                             return transition::keep();
                         }
-                        if (!c->send(*encrypted)) {
+                        if (!c->send(std::move(**encrypted))) {
                             return transition::keep();
                         }
 
@@ -318,11 +346,11 @@ namespace net {
                             }
                             const auto auth_request = auth_packet{std::string(user), std::move(*pwd)};
                             const auto words = serial::packet_serializer::serialize_into_pool(auth_request);
-                            const auto encrypted = cipher.encrypt(*words);
+                            const auto encrypted = cipher.encrypt_inplace(std::span(*words));
                             if (!encrypted) [[unlikely]] {
                                 return transition::keep();
                             }
-                            if (!c->send(*encrypted)) {
+                            if (!c->send(std::move(**encrypted))) {
                                 return transition::keep();
                             }
 
@@ -335,12 +363,12 @@ namespace net {
                         }
                         const auto resize = resize_packet {*ws};
                         const auto serialized = serial::packet_serializer::serialize_into_pool(resize);
-                        const auto encrypted = cipher.encrypt(*serialized);
+                        const auto encrypted = cipher.encrypt_inplace(std::span(*serialized));
                         if (!encrypted) [[unlikely]] {
                             spdlog::warn("Failed to encrypt window size data.");
                             return transition::activate_session();
                         }
-                        if (!c->send(*encrypted, 1)) {
+                        if (!c->send(std::move(**encrypted), 1)) {
                             spdlog::warn("Failed to send encrypted data.");
                             return transition::activate_session();
                         }
@@ -371,12 +399,10 @@ namespace net {
         }
 
         return std::visit(overloaded {
-            [&] (const shell_message &sh_msg) constexpr  {
+            [&] (const shell_message &sh_msg) {
                 switch (sh_msg.type) {
                     case packet_type::BYTES: {
-                        if (!sh_msg.bytes.empty()) {
-                            write(STDOUT_FILENO, sh_msg.bytes.data(), sh_msg.bytes.size());
-                        }
+                        write_ansi_aware(sh_msg.bytes);
                     } break;
                     case packet_type::DISCONNECT: {
                         transition::disconnect(sh_msg.bytes);

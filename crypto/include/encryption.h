@@ -24,6 +24,9 @@ namespace crypto {
 
         [[nodiscard]] virtual constexpr std::expected<std::vector<u8>, std::string> encrypt(const std::span<const u8> & /* message */) = 0;
         [[nodiscard]] virtual constexpr std::expected<std::vector<u8>, std::string> encrypt(const std::vector<u8> & /* message */) = 0;
+        [[nodiscard]] virtual constexpr std::expected<std::unique_ptr<std::vector<u8>, void (*)(std::vector<u8> *)>,
+                                                      std::string>
+        encrypt_inplace(const std::span<const u8> & /* message */) = 0;
 
         [[nodiscard]] virtual constexpr std::expected<std::vector<u8>, std::string> decrypt(const std::span<const u8> & /* encrypted */) = 0;
         [[nodiscard]] virtual constexpr std::expected<std::span<u8>, std::string> decrypt_inplace(const std::span<u8> & /* encrypted */) = 0;
