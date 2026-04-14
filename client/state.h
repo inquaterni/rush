@@ -32,15 +32,16 @@ namespace net {
     class init;
     class handshake;
     class conn_confirm;
-    class auth;
+    class await_password;
+    class authenticating;
     class connected;
 
     static constexpr u8 c_confirm_magic[] = "CONFIRM";
     static constexpr u8 s_confirm_magic[] = "OK";
 
-    static constexpr u8 ansi_esc = 0x1B;
-    static constexpr u8 ansi_final_lo = 0x40;
-    static constexpr u8 ansi_final_hi = 0x7E;
+    // static constexpr u8 ansi_esc = 0x1B;
+    // static constexpr u8 ansi_final_lo = 0x40;
+    // static constexpr u8 ansi_final_hi = 0x7E;
 
     // NOTE: `is_confirm_X` checks if `data` is a valid confirmation FROM X.
     // `is_confirm_client` checks for server-sent magic (s_confirm_magic, "OK").
@@ -102,18 +103,25 @@ namespace net {
         constexpr conn_confirm& operator=(conn_confirm&&) = default;
 
         [[nodiscard]]
-        auto handle(const std::shared_ptr<client> &c, const receive_event &e, const crypto::cipher &cipher, std::string_view user) const noexcept;
+        auto handle(const receive_event &e, const crypto::cipher &cipher) const noexcept;
     private:
         std::chrono::steady_clock::time_point confirm_start_point {std::chrono::steady_clock::now()};
     };
-    class auth final : public state {
+    class await_password final : public state {
     public:
-        static constinit inline int max_retries {1};
-        constexpr auth() noexcept = default;
+        constexpr await_password() noexcept = default;
 
         [[nodiscard]]
-        auto handle(const std::shared_ptr<client> &c, receive_event &e, const crypto::cipher &cipher,
-                    std::string_view user) noexcept;
+        auto handle(const std::shared_ptr<client> &c, const pwd_response_event &e, const crypto::cipher &cipher,
+                    std::string_view user) const noexcept;
+    };
+    class authenticating final : public state {
+    public:
+        static constinit inline int max_retries {1};
+        constexpr authenticating() noexcept = default;
+
+        [[nodiscard]]
+        auto handle(const std::shared_ptr<client> &c, receive_event &e, const crypto::cipher &cipher) noexcept;
     private:
         int retries{0};
     };
@@ -153,7 +161,7 @@ namespace net {
         // }
     };
 
-    using state_t = std::variant<handshake, conn_confirm, auth, connected>;
+    using state_t = std::variant<handshake, conn_confirm, await_password, authenticating, connected>;
     using transition_t = std::variant<keep_state_t, disconnect_t, establish_t, activate_session_t, state_t>;
 
     struct transition {
@@ -193,7 +201,7 @@ namespace net {
                                  asio::io_context &ctx,
                                  const std::string_view username, asio::signal_set &sigset) noexcept :
             m_ctx(ctx), m_client(std::move(host)), state(std::move(state)), m_keys(keys), signals(sigset), m_username(username) {}
-        constexpr void handle(receive_event &e) noexcept;
+        constexpr void handle(event &e) noexcept;
 
         constexpr ~client_context() noexcept {
             if (m_sess) m_sess->stop();
@@ -272,8 +280,8 @@ namespace net {
             }
         }, *pkt);
     }
-    inline auto conn_confirm::handle(const std::shared_ptr<client> &c, const receive_event &e,
-                                     const crypto::cipher &cipher, const std::string_view user) const noexcept {
+    inline auto conn_confirm::handle(const receive_event &e,
+                                     const crypto::cipher &cipher) const noexcept {
         if (std::chrono::steady_clock::now() - confirm_start_point > max_duration) {
             return transition::disconnect("Timeout reached.");
         }
@@ -293,21 +301,8 @@ namespace net {
                             return transition::keep();
                         }
 
-                        auto pwd = term::getpwd(std::format("{}'s password: ", user));
-                        if (!pwd) [[unlikely]] {
-                            return transition::disconnect(pwd.error());
-                        }
-                        const auto auth_request = auth_packet{std::string(user), std::move(*pwd)};
-                        const auto words = serial::packet_serializer::serialize_into_pool(auth_request);
-                        const auto encrypted = cipher.encrypt_inplace(std::span(*words));
-                        if (!encrypted) [[unlikely]] {
-                            return transition::keep();
-                        }
-                        if (!c->send(std::move(**encrypted))) {
-                            return transition::keep();
-                        }
-
-                        return transition::to(auth{});
+                        event_bus_t::instance().enqueue(pwd_request_event{});
+                        return transition::to(await_password{});
                     }
                     case packet_type::DISCONNECT: {
                         return transition::disconnect(sh_msg.bytes);
@@ -320,8 +315,24 @@ namespace net {
             }
         }, *pkt);
     }
+
     // ReSharper disable once CppMemberFunctionMayBeStatic
-    inline auto auth::handle(const std::shared_ptr<client> &c, receive_event &e, const crypto::cipher &cipher, const std::string_view user) noexcept {
+    inline auto await_password::handle(const std::shared_ptr<client> &c, const pwd_response_event &e, const crypto::cipher &cipher, const std::string_view user) const noexcept {
+        const auto auth_request = auth_packet{std::string(user), e.pwd()};
+        const auto words = serial::packet_serializer::serialize_into_pool(auth_request);
+        const auto encrypted = cipher.encrypt_inplace(std::span(*words));
+        if (!encrypted) [[unlikely]] {
+            return transition::keep();
+        }
+        if (!c->send(std::move(**encrypted))) {
+            return transition::keep();
+        }
+
+        return transition::to(authenticating{});
+    }
+
+    // ReSharper disable once CppMemberFunctionMayBeStatic
+    inline auto authenticating::handle(const std::shared_ptr<client> &c, receive_event &e, const crypto::cipher &cipher) noexcept {
         const auto decrypted = cipher.decrypt_inplace(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
@@ -340,21 +351,9 @@ namespace net {
                                 return transition::disconnect("Maximum retries exceeded.");
                             }
                             spdlog::info("Try again.");
-                            auto pwd = term::getpwd(std::format("{}'s password: ", user));
-                            if (!pwd) [[unlikely]] {
-                                return transition::disconnect(pwd.error());
-                            }
-                            const auto auth_request = auth_packet{std::string(user), std::move(*pwd)};
-                            const auto words = serial::packet_serializer::serialize_into_pool(auth_request);
-                            const auto encrypted = cipher.encrypt_inplace(std::span(*words));
-                            if (!encrypted) [[unlikely]] {
-                                return transition::keep();
-                            }
-                            if (!c->send(std::move(**encrypted))) {
-                                return transition::keep();
-                            }
 
-                            return transition::keep();
+                            event_bus_t::instance().enqueue(pwd_request_event{});
+                            return transition::to(await_password{});
                         }
                         const auto ws = tunnel::tunnel_session::get_window_size();
                         if (!ws) [[unlikely]] {
@@ -417,21 +416,41 @@ namespace net {
         }, *pkt);
     }
 
-    constexpr void client_context::handle(receive_event &e) noexcept {
-        auto transition = std::visit<transition_t>(overloaded {
-            [&] (connected &s) constexpr {
-                return s.dispatch(m_client, e, *cipher);
+    constexpr void client_context::handle(event &e) noexcept {
+        auto transition = std::visit<transition_t>( overloaded {
+            [&] (receive_event &re) constexpr -> transition_t {
+                return std::visit<transition_t>(overloaded {
+                    [&] (connected &s) constexpr -> transition_t {
+                        return s.dispatch(m_client, re, *cipher);
+                    },
+                    [&] (authenticating &s) constexpr -> transition_t {
+                        return s.dispatch(m_client, re, *cipher);
+                    },
+                    [&] (conn_confirm &s) constexpr -> transition_t {
+                        return s.dispatch(re, *cipher);
+                    },
+                    [&] (handshake &s) constexpr -> transition_t {
+                        return s.dispatch(m_client, re, m_keys);
+                    },
+                    [&] (auto &) constexpr -> transition_t {
+                        return transition::keep();
+                    }
+                }, state);
             },
-            [&] (auth &s) constexpr {
-                return s.dispatch(m_client, e, *cipher, this->m_username);
+            [&] (pwd_response_event &pre) constexpr -> transition_t {
+                return std::visit<transition_t>(overloaded {
+                    [&] (await_password &s) constexpr -> transition_t {
+                        return s.dispatch(m_client, pre, *cipher, this->m_username);
+                    },
+                    [&] (auto &) constexpr -> transition_t {
+                        return transition::keep();
+                    }
+                }, state);
             },
-            [&] (conn_confirm &s) constexpr {
-                return s.dispatch(m_client, e, *cipher, this->m_username);
-            },
-            [&] (handshake &s) constexpr {
-                return s.dispatch(m_client, e, m_keys);
+            [&] (auto &) constexpr -> transition_t {
+                return transition::keep();
             }
-        }, state);
+        }, e);
 
         std::visit(overloaded {
             [&] (keep_state_t &) constexpr {},

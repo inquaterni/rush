@@ -99,13 +99,36 @@ int main(const int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    auto& bus = net::event_bus_t::instance();
     std::unique_ptr<net::client_context> ctx {nullptr};
     auto work_guard = asio::make_work_guard(io_ctx);
     std::jthread pump_thread {[&io_ctx] {
         io_ctx.run();
     }};
+    std::function<void(std::error_code, int)> sig_handler;
+    sig_handler = [&](std::error_code ec, int signo) {
+        if (ec) return;
+        if (signo == SIGINT || signo == SIGTERM || signo == SIGQUIT) {
+            client->disconnect();
+            io_ctx.stop();
+            std::exit(1);
+        }
+        signals.async_wait(sig_handler);
+    };
+    signals.async_wait(sig_handler);
+
     while (true) {
-        auto e = client->service();
+        client->service(100);
+
+        if (term.pwd_active()) {
+            if (auto pwd = term.poll_pwd()) {
+                if (!bus.enqueue(net::pwd_response_event(std::move(*pwd)))) {
+                    spdlog::error("Failed to send password.");
+                }
+            }
+        }
+
+        auto e = bus.dequeue();
         if (!e) {
             continue;
         }
@@ -120,8 +143,8 @@ int main(const int argc, char **argv) {
                 ctx = std::make_unique<net::client_context>(client, net::handshake{}, *keys, io_ctx, user, signals);
                 return std::nullopt;
             },
-            [&](net::receive_event &re) constexpr {
-                ctx->handle(re);
+            [&](net::receive_event &) constexpr {
+                ctx->handle(*e);
                 return std::nullopt;
             },
             [&](net::disconnect_event &) constexpr {
@@ -133,8 +156,16 @@ int main(const int argc, char **argv) {
                 pump_thread.join();
                 client->shutdown();
                 return asio::error::operation_aborted;
+            },
+            [&](net::pwd_request_event &) constexpr {
+                term.begin_pwd(std::format("{}'s password: ", user_host));
+                return std::nullopt;
+            },
+            [&](net::pwd_response_event &) constexpr {
+                ctx->handle(*e);
+                return std::nullopt;
             }
-        }, e.value());
+        }, *e);
 
         if (ec) break;
     }

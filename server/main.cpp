@@ -73,7 +73,7 @@ int main() {
             continue;
         }
 
-        std::visit(net::overloaded{[&](const net::connect_event &ce) constexpr {
+        std::visit(net::overloaded{[&](net::connect_event &ce) constexpr {
            spdlog::info("Peer connected. Waiting for handshake.");
            ce.peer()->data = static_cast<void *>( new net::peer_context{*host, net::handshake{}, *keys, io_ctx});
         },
@@ -87,7 +87,9 @@ int main() {
                delete ctx;
                de.set_peer(nullptr);
            }
-       }},
+       },
+       [&](auto &) {}
+        },
        e.value());
     }
 

@@ -78,7 +78,7 @@ public:
 
         max_size = (max_size + sizeof(capnp::word) - 1) & ~(sizeof(capnp::word) - 1);
 
-        auto buf = net::object_pool<std::vector<net::u8>>::get_instance().acquire();
+        auto buf = net::object_pool_t::get_instance().acquire();
         buf->assign(max_size, 0);
 
         auto* out_words = reinterpret_cast<capnp::word*>(buf->data());

@@ -37,8 +37,7 @@ namespace net {
         [[nodiscard]]
         constexpr bool send(std::vector<u8> &&pkt, u8 channel_id = 0,
                             u32 flags = ENET_PACKET_FLAG_NO_ALLOCATE | ENET_PACKET_FLAG_RELIABLE) const noexcept;
-        [[nodiscard]]
-        constexpr std::expected<event, std::string> service(int timeout = 1000) const noexcept;
+        constexpr void service(int timeout = 1000) const noexcept;
         explicit constexpr client(host && /* client host */) noexcept;
         constexpr void disconnect() const noexcept;
         constexpr void shutdown() noexcept;
@@ -101,33 +100,31 @@ namespace net {
 
         return true;
     }
-    constexpr std::expected<event, std::string> client::service(const int timeout) const noexcept {
+    constexpr void client::service(const int timeout) const noexcept {
         ENetEvent event;
         while (m_running) {
-            if (const int res = enet_host_service(m_host.get(), &event, timeout); res <= 0) continue;
-            switch (event.type) {
-                case ENET_EVENT_TYPE_CONNECT: {
-                    if (!event.peer) [[unlikely]]
-                        return std::unexpected{"Peer is NULL."};
-                    return connect_event::create(event.peer);
-                }
-                case ENET_EVENT_TYPE_DISCONNECT:
-                case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT: {
-                    if (!event.peer) [[unlikely]]
-                        return std::unexpected{"Peer is NULL."};
-                    return disconnect_event::create(event.peer, event.data);
-                }
-                case ENET_EVENT_TYPE_RECEIVE: {
-                    if (!event.peer) [[unlikely]]
-                        return std::unexpected{"Peer is NULL."};
-                    if (!event.packet) [[unlikely]]
-                        return std::unexpected{"Packet is NULL."};
-                    return receive_event::create(event.channelID, event.peer, event.packet);
-                }
-                default: std::unexpected{"No event received."};
+            if (const int res = enet_host_service(m_host.get(), &event, timeout); res <= 0) return;
+        switch (event.type) {
+            case ENET_EVENT_TYPE_CONNECT: {
+                if (!event.peer) [[unlikely]] return;
+                event_bus_t::instance().create_enqueue(event.peer);
+                return;
             }
+            case ENET_EVENT_TYPE_DISCONNECT:
+            case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT: {
+                if (!event.peer) [[unlikely]] return;
+                event_bus_t::instance().create_enqueue(event.peer, event.data);
+                return;
+            }
+            case ENET_EVENT_TYPE_RECEIVE: {
+                if (!event.peer) [[unlikely]] return;
+                if (!event.packet) [[unlikely]] return;
+                event_bus_t::instance().create_enqueue(event.channelID, event.peer, event.packet);
+                return;
+            }
+            default: return;
         }
-        return std::unexpected{"Client has been stopped."};
+    }
     }
 
     constexpr client::client(host &&client) noexcept :

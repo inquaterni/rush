@@ -235,6 +235,8 @@ namespace net {
         }
     };
 #endif
+
+    using object_pool_t = object_pool<std::vector<u8>>;
 } // net
 
 #endif //OBJECT_POOL_H

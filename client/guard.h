@@ -7,6 +7,7 @@
 
 #include <expected>
 #include <iostream>
+#include <poll.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -23,6 +24,11 @@ namespace term {
         [[nodiscard]]
         constexpr bool is_raw() const noexcept {return raw;}
 
+        constexpr bool begin_pwd(std::string_view prompt) noexcept;
+        constexpr std::optional<std::string> poll_pwd() noexcept;
+        constexpr void end_pwd() noexcept;
+        [[nodiscard]] constexpr bool pwd_active() const noexcept { return m_pwd_active; }
+
         constexpr guard(const guard &other) = delete;
         constexpr guard &operator=(const guard &other) = delete;
         constexpr guard(guard &&other) = delete;
@@ -32,6 +38,11 @@ namespace term {
         static constinit inline bool initialized{false};
         bool raw{false};
         termios orig_term{};
+
+        bool m_pwd_active {false};
+        termios m_pwd_old {};
+        std::string m_pwd_buf;
+
         constexpr guard();
     };
     constexpr guard::~guard() {
@@ -52,7 +63,6 @@ namespace term {
     }
     constexpr void guard::disable_raw_mode() noexcept {
         if (!raw) return;
-        write(STDOUT_FILENO, "\n", 1);
         tcflush(STDIN_FILENO, TCIFLUSH);
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_term);
         raw = false;
@@ -82,6 +92,45 @@ namespace term {
         std::cout << "\n";
 
         return password;
+    }
+    constexpr bool guard::begin_pwd(const std::string_view prompt) noexcept {
+        if (m_pwd_active) return false;
+        if (tcgetattr(STDIN_FILENO, &m_pwd_old) < 0) return false;
+
+        termios noecho = m_pwd_old;
+        noecho.c_lflag &= ~ECHO;
+        if (tcsetattr(STDIN_FILENO, TCSANOW, &noecho) < 0) return false;
+
+        write(STDOUT_FILENO, prompt.data(), prompt.size());
+        m_pwd_buf.clear();
+        m_pwd_active = true;
+        return true;
+    }
+    constexpr std::optional<std::string> guard::poll_pwd() noexcept {
+        if (!m_pwd_active) return std::nullopt;
+
+        pollfd pfd {STDIN_FILENO, POLLIN, 0};
+        while (poll(&pfd, 1, 0) > 0) {
+            char c;
+            if (read(STDIN_FILENO, &c, 1) <= 0) break;
+
+            if (c == '\n' || c == '\r') {
+                end_pwd();
+                return std::move(m_pwd_buf);
+            }
+            if (c == 0x7F || c == '\b') {
+                if (!m_pwd_buf.empty()) m_pwd_buf.pop_back();
+            } else {
+                m_pwd_buf += c;
+            }
+        }
+        return std::nullopt;
+    }
+    constexpr void guard::end_pwd() noexcept {
+        if (!m_pwd_active) return;
+        tcsetattr(STDIN_FILENO, TCSANOW, &m_pwd_old);
+        write(STDOUT_FILENO, "\n", 1);
+        m_pwd_active = false;
     }
 } // term
 

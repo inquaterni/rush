@@ -10,6 +10,7 @@
 
 
 #include "enet.h"
+#include "event_bus.h"
 #include "types.h"
 
 namespace net {
@@ -86,7 +87,23 @@ namespace net {
         constexpr receive_event(const u8 channel, ENetPeer *peer, packet_ptr &&packet) noexcept
             : _peer(peer), _channel_id(channel), packet(std::forward<packet_ptr>(packet)) {}
     };
-    using event = std::variant<connect_event, disconnect_event, receive_event>;
+    class pwd_request_event {
+    public:
+        constexpr pwd_request_event() noexcept = default;
+    };
+    class pwd_response_event {
+    public:
+        explicit constexpr pwd_response_event(std::string pwd) noexcept
+        : password(std::move(pwd)) {}
+
+        [[nodiscard]] constexpr const std::string& pwd() const { return password; }
+
+    private:
+        std::string password;
+    };
+    using event = std::variant<connect_event, disconnect_event, receive_event, pwd_request_event, pwd_response_event>;
+
+    using event_bus_t = event_bus<event, RUSH_ALIGNED_CAPACITY(event, 16)>;
 } // net
 
 #endif //EVENT_H

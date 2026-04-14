@@ -25,12 +25,12 @@
 
 namespace net {
     struct packet_data_ {
-        std::shared_ptr<std::vector<u8>> data;
+        object_pool_t::pool_ptr data {nullptr, [] (object_pool_t::pointer) {}};
         ENetPeer *peer {nullptr};
         u32 flags{};
         u8 channel{};
 
-        packet_data_(std::shared_ptr<std::vector<u8>> data, ENetPeer *peer, const u32 flags, const u8 channel) noexcept :
+        packet_data_(object_pool_t::pool_ptr data, ENetPeer *peer, const u32 flags, const u8 channel) noexcept :
             data(std::move(data)), peer(peer), flags(flags), channel(channel) {}
 
         packet_data_() = default;
@@ -104,7 +104,7 @@ namespace net {
     constexpr std::expected<event, std::string> host::service(const int timeout) noexcept {
         ENetEvent event;
         while (m_running) {
-            if (const int res = enet_host_service_locked(m_host.get(), &event, timeout); res <= 0) continue;
+            if (const int res = enet_host_service_locked(m_host.get(), &event, timeout); res <= 0) return std::unexpected {"No event received."};
             switch (event.type) {
                 case ENET_EVENT_TYPE_CONNECT: {
                     if (!event.peer) [[unlikely]]
@@ -137,9 +137,9 @@ namespace net {
             channel_id,
         });
     }
-    constexpr bool host::send(ENetPeer *peer, std::unique_ptr<std::vector<u8>, void (*)(std::vector<u8> *)> &&data, const u8 channel_id, const u32 flags) noexcept {
-        auto buf = object_pool<std::vector<u8>>::get_instance().acquire();
-        buf = std::forward<std::unique_ptr<std::vector<u8>, void (*)(std::vector<u8> *)>>(data);
+    constexpr bool host::send(ENetPeer *peer, object_pool_t::pool_ptr &&data, const u8 channel_id, const u32 flags) noexcept {
+        auto buf = object_pool_t::get_instance().acquire();
+        buf = std::forward<object_pool_t::pool_ptr>(data);
         return m_packets.try_enqueue(packet_data_ {
             std::move(buf),
             peer,
@@ -175,7 +175,7 @@ namespace net {
                         {
                             std::scoped_lock lock(m_mutex);
                             enet_peer_disconnect(data.peer, data.data);
-                            // enet_host_flush(m_host.get());
+                            enet_host_flush(m_host.get());
                         }
                     }
                 }
