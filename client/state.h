@@ -318,7 +318,7 @@ namespace net {
 
     // ReSharper disable once CppMemberFunctionMayBeStatic
     inline auto await_password::handle(const std::shared_ptr<client> &c, const pwd_response_event &e, const crypto::cipher &cipher, const std::string_view user) const noexcept {
-        const auto auth_request = auth_packet{std::string(user), e.pwd()};
+        const auto auth_request = auth_packet{user, e.pwd()};
         const auto words = serial::packet_serializer::serialize_into_pool(auth_request);
         const auto encrypted = cipher.encrypt_inplace(std::span(*words));
         if (!encrypted) [[unlikely]] {

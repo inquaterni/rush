@@ -43,7 +43,7 @@ namespace asio::detail {
 #endif
 
 
-std::pair<std::string_view, std::string_view>
+constexpr std::pair<std::string_view, std::string_view>
 split_pair(std::string_view arg, const char delimiter) {
 
     const auto pos = arg.find(delimiter);

@@ -22,7 +22,7 @@ Rush is a modern, high-performance C++23 networking project designed to demonstr
 - **Modern C++23 Architecture**: Written with the latest C++ standards in mind, utilizing `std::expected` for error handling, `std::span` for memory safety, and `constexpr` for compile-time optimizations. Fully compatible with `-fno-exceptions` and `-fno-rtti` builds.
 - **Asynchronous I/O**: Fully integrated with **Asio** for specific, non-blocking event loops.
 - **Strong Encryption**: Secure communication using **XChaCha20-Poly1305** authenticated encryption (via `libsodium`), executing fast **in-place decryption** routines to prevent buffer allocations.
-- **Zero-Copy Network Pipeline**: Truly zero-allocation, end-to-end message handling. Orchestrates a thread-safe **object pool** to continually recycle network buffers, directly serializes into these boundaries via **Cap'n Proto**, and hands off raw pointers to ENet using `ENET_PACKET_FLAG_NO_ALLOCATE` to avoid redundant user-space copies.
+- **Zero-Copy Network Pipeline**: Minimal-allocation, end-to-end message handling. Orchestrates a thread-safe **object pool** to continually recycle network buffers, directly serializes into these buffers via **Cap'n Proto**, and hands off raw pointers to ENet using `ENET_PACKET_FLAG_NO_ALLOCATE` to avoid redundant user-space copies. Handshake packets are the sole exception — their fixed-size, trivially-copyable public key payload makes an explicit copy both correct and faster than the alternative.
 - **Type-Safe Event Handling**: Clean, variant-based event dispatching system using `std::visit`.
 - **Thread-Safe**: Designed for concurrency with `moodycamel::ConcurrentQueue` and thread-safe host management. (Yet, this queue is overkill, as locks are used anyway. ( ͡° ͜ʖ ͡°))
 
@@ -30,7 +30,7 @@ Rush is a modern, high-performance C++23 networking project designed to demonstr
 
 - C++23 compatible compiler (e.g., GCC 14+, Clang 18+)
 - CMake 3.31+
-- **Linux** (Windows is not supported, MacOS and other UNIX-like systems are untested)
+- **Linux** (Windows is not supported, macOS and other UNIX-like systems are untested)
 - **PAM Development Headers**
 - **sshd PAM usage** (Server expects to authenticate via PAM using `sshd` configuration)
 

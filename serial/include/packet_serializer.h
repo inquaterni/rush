@@ -59,8 +59,8 @@ public:
             },
             [&] (const net::auth_packet &p) {
                 auto auth = root.initAuthRequest();
-                auth.setUsername(p.username);
-                auth.setPasswd(p.password);
+                auth.setUsername(p.username.data());
+                auth.setPasswd(p.password.data());
             }
         }, pkt);
 
@@ -79,8 +79,7 @@ public:
         max_size = (max_size + sizeof(capnp::word) - 1) & ~(sizeof(capnp::word) - 1);
 
         auto buf = net::object_pool_t::get_instance().acquire();
-        buf->assign(max_size, 0);
-
+        buf->resize(max_size);
         auto* out_words = reinterpret_cast<capnp::word*>(buf->data());
         const auto word_span = kj::arrayPtr(
             out_words + 1,
@@ -97,23 +96,15 @@ public:
                 std::ranges::copy(p.public_key, key_builder.begin());
             },
             [&] (const net::shell_message &p) {
+                const auto bytes = kj::arrayPtr(
+                    p.bytes.data(),
+                    p.bytes.size()
+                );
                 switch (p.type) {
-                    case net::packet_type::BYTES: {
-                        auto data = root.initBytes(p.bytes.size());
-                        std::ranges::copy(p.bytes, data.begin());
-                    } break;
-                    case net::packet_type::DISCONNECT: {
-                        auto data = root.initDisconnect(p.bytes.size());
-                        std::ranges::copy(p.bytes, data.begin());
-                    } break;
-                    case net::packet_type::SIGNAL: {
-                        auto data = root.initSignal(p.bytes.size());
-                        std::ranges::copy(p.bytes, data.begin());
-                    } break;
-                    case net::packet_type::AUTH_RESPONSE: {
-                        auto data = root.initAuthResponse(p.bytes.size());
-                        std::ranges::copy(p.bytes, data.begin());
-                    } break;
+                    case net::packet_type::BYTES:         root.setBytes(bytes);        break;
+                    case net::packet_type::DISCONNECT:    root.setDisconnect(bytes);   break;
+                    case net::packet_type::SIGNAL:        root.setSignal(bytes);       break;
+                    case net::packet_type::AUTH_RESPONSE: root.setAuthResponse(bytes); break;
                     default: assert(0 && "Unreachable");
                 }
             },
@@ -126,8 +117,9 @@ public:
             },
             [&] (const net::auth_packet &p) {
                 auto auth = root.initAuthRequest();
-                auth.setUsername(p.username);
-                auth.setPasswd(p.password);
+                const_cast<char*>(p.username.data())[p.username.size()] = '\0';
+                auth.setUsername(capnp::Text::Reader(p.username.data(), p.username.size()));
+                auth.setPasswd(capnp::Text::Reader(p.password.data(), p.password.size()));
             }
         }, pkt);
 

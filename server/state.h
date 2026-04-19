@@ -27,8 +27,8 @@ namespace net {
         crypto::cipher cipher;
     };
     struct activate_session_t {
-        std::string username;
-        std::string password;
+        std::string_view username;
+        std::string_view password;
     };
     class state;
     class handshake;
@@ -137,8 +137,9 @@ namespace net {
         static constexpr transition_t establish(std::unique_ptr<crypto::encryption> encryptor) noexcept {
             return {establish_t{crypto::cipher(std::move(encryptor))}};
         }
-        static constexpr transition_t activate_session(std::string username, std::string passwd) noexcept {
-            return {activate_session_t{std::move(username), std::move(passwd)}};
+        static constexpr transition_t activate_session(const std::string_view username,
+                                                       const std::string_view passwd) noexcept {
+            return {activate_session_t{username, passwd}};
         }
         template <class T>
         requires std::derived_from<std::remove_cvref_t<T>, state> &&
@@ -254,7 +255,7 @@ namespace net {
             return transition::keep();
         }
 
-        return transition::activate_session(std::move(request->username), std::move(request->password));
+        return transition::activate_session(request->username, request->password);
     }
     // ReSharper disable once CppMemberFunctionMayBeStatic
     inline auto connected::handle(const std::shared_ptr<host> & /* h */, receive_event &e,

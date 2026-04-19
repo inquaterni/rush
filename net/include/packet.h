@@ -46,7 +46,6 @@ namespace net {
         alignas(crypto_kx_PUBLICKEYBYTES) crypto::pkey_t public_key {};
 
         explicit constexpr handshake_packet(const crypto::pkey_t &public_key) noexcept : public_key(public_key) {}
-        explicit constexpr handshake_packet(crypto::pkey_t &&public_key) noexcept : public_key(std::forward<crypto::pkey_t>(public_key)) {}
         explicit constexpr handshake_packet(const capnp::Data::Reader &reader) noexcept {
             std::ranges::copy(reader, public_key.begin());
         }
@@ -60,18 +59,14 @@ namespace net {
     };
     struct auth_packet {
         constexpr static auto type = packet_type::AUTH_REQUEST;
-        std::string username {};
-        std::string password {};
+        std::string_view username {};
+        std::string_view password {};
 
-        constexpr auth_packet(std::string username, std::string password) noexcept
-        : username(std::move(username)), password(std::move(password)) {}
+        constexpr auth_packet(const std::string_view username, const std::string_view password) noexcept
+        : username(username), password(password) {}
 
-        constexpr auth_packet(const capnp::Text::Reader &username_reader, const capnp::Text::Reader &password_reader) noexcept {
-            username.resize(username_reader.size());
-            password.resize(password_reader.size());
-            std::ranges::copy(username_reader, username.begin());
-            std::ranges::copy(password_reader, password.begin());
-        }
+        constexpr auth_packet(const capnp::Text::Reader &username_reader, const capnp::Text::Reader &password_reader) noexcept
+        : username(username_reader.cStr(), username_reader.size()), password(password_reader.cStr(), password_reader.size()) {}
     };
 
     using packet = std::variant<shell_message, handshake_packet, resize_packet, auth_packet>;
