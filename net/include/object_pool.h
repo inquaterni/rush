@@ -101,6 +101,20 @@ namespace net {
         constexpr object_pool(object_pool &&other) = delete;
         constexpr object_pool &operator=(object_pool &&other) = delete;
 
+        constexpr void release(pointer p) {
+            if (!p) return;
+            p->~value_type();
+
+            node* block = reinterpret_cast<node*>(p);
+
+            node_tptr old_head = free_list.load(std::memory_order_relaxed);
+            node_tptr new_head;
+            do {
+                block->next = old_head.ptr();
+                new_head = node_tptr::make(block, old_head.tag() + 1);
+            } while (!free_list.compare_exchange_weak(old_head, new_head, std::memory_order_release, std::memory_order_relaxed));
+        }
+
     private:
         std::mutex m_mutex {};
 
@@ -125,20 +139,6 @@ namespace net {
         explicit constexpr object_pool(std::size_t chunk_capacity = 4096) noexcept
         : m_chunk_capacity(chunk_capacity) {
             m_pool.emplace_back(chunk_capacity);
-        }
-
-        void release(pointer p) {
-            if (!p) return;
-            p->~value_type();
-
-            node* block = reinterpret_cast<node*>(p);
-
-            node_tptr old_head = free_list.load(std::memory_order_relaxed);
-            node_tptr new_head;
-            do {
-                block->next = old_head.ptr();
-                new_head = node_tptr::make(block, old_head.tag() + 1);
-            } while (!free_list.compare_exchange_weak(old_head, new_head, std::memory_order_release, std::memory_order_relaxed));
         }
     };
 

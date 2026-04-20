@@ -63,6 +63,7 @@ namespace term {
     }
     constexpr void guard::disable_raw_mode() noexcept {
         if (!raw) return;
+        auto _ = write(STDOUT_FILENO, "\n\r", 2);
         tcflush(STDIN_FILENO, TCIFLUSH);
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_term);
         raw = false;

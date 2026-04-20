@@ -82,7 +82,7 @@ namespace net {
         if (!guard::is_initialized())
             return std::unexpected{"ENet is not initialized."};
 
-        ENetAddress address;
+        ENetAddress address {};
         address.host = addr;
         address.port = port;
 
@@ -138,10 +138,8 @@ namespace net {
         });
     }
     constexpr bool host::send(ENetPeer *peer, object_pool_t::pool_ptr &&data, const u8 channel_id, const u32 flags) noexcept {
-        auto buf = object_pool_t::get_instance().acquire();
-        buf = std::forward<object_pool_t::pool_ptr>(data);
         return m_packets.try_enqueue(packet_data_ {
-            std::move(buf),
+            std::move(data),
             peer,
             flags,
             channel_id,
@@ -159,18 +157,25 @@ namespace net {
                 continue;
             }
             std::visit(overloaded {
-                [&] (const packet_data_ &data) constexpr {
+                [&] (packet_data_ &data) constexpr {
                     if (data.peer && data.peer->state == ENET_PEER_STATE_CONNECTED) {
                         {
                             std::scoped_lock lock(m_mutex);
                             if (const auto pkt = enet_packet_create(data.data->data(), data.data->size(), data.flags)) {
+                                pkt->userData = data.data.release();
+                                pkt->freeCallback = [](void* packet) {
+                                    auto* user_data = static_cast<ENetPacket*>(packet)->userData;
+                                    auto* vec = static_cast<std::vector<u8>*>(user_data);
+                                    object_pool_t::get_instance().release(vec);
+                                };
                                 enet_peer_send(data.peer, data.channel, pkt);
                                 enet_host_flush(m_host.get());
                             }
                         }
                     }
                 },
-                [&] (const struct disconnect &data) constexpr {
+                // ReSharper disable once CppParameterMayBeConstPtrOrRef
+                [&] (struct disconnect &data) constexpr {
                     if (data.peer && data.peer->state == ENET_PEER_STATE_CONNECTED) {
                         {
                             std::scoped_lock lock(m_mutex);

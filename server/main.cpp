@@ -41,12 +41,12 @@ int main() {
     auto io_ctx = asio::io_context{};
 
     auto host = net::host::create(ENET_HOST_ANY, 6969);
-    if (!host) {
+    if (!host) [[unlikely]] {
         spdlog::critical("Failed to create server: {}", host.error());
         return EXIT_FAILURE;
     }
     auto keys = crypto::keys_factory::enroll_key_pair();
-    if (!keys) {
+    if (!keys) [[unlikely]] {
         spdlog::critical("Failed to enroll key pair: {}", keys.error());
         return EXIT_FAILURE;
     }
@@ -60,7 +60,7 @@ int main() {
 
     asio::signal_set signals(io_ctx, SIGINT, SIGTERM);
     signals.async_wait([&io_ctx, &host, &work_guard, &shutdown](auto error, int) {
-        if (!error) {
+        if (!error) [[likely]] {
             (*host)->shutdown();
             work_guard.reset();
             io_ctx.stop();
@@ -73,6 +73,7 @@ int main() {
             continue;
         }
 
+        // ReSharper disable once CppParameterMayBeConstPtrOrRef (`const` will cause SIGSEGV)
         std::visit(net::overloaded{[&](net::connect_event &ce) constexpr {
            spdlog::info("Peer connected. Waiting for handshake.");
            ce.peer()->data = static_cast<void *>( new net::peer_context{*host, net::handshake{}, *keys, io_ctx});

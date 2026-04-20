@@ -106,7 +106,7 @@ int main(const int argc, char **argv) {
         io_ctx.run();
     }};
     std::function<void(std::error_code, int)> sig_handler;
-    sig_handler = [&](std::error_code ec, int signo) {
+    sig_handler = [&](const std::error_code ec, const int signo) {
         if (ec) return;
         if (signo == SIGINT || signo == SIGTERM || signo == SIGQUIT) {
             client->disconnect();
@@ -120,7 +120,7 @@ int main(const int argc, char **argv) {
     while (true) {
         client->service(100);
 
-        if (term.pwd_active()) {
+        if (term.pwd_active()) [[unlikely]] {
             if (auto pwd = term.poll_pwd()) {
                 if (!bus.enqueue(net::pwd_response_event(std::move(*pwd)))) {
                     spdlog::error("Failed to send password.");
