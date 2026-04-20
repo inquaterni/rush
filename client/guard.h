@@ -98,11 +98,11 @@ namespace term {
         if (m_pwd_active) return false;
         if (tcgetattr(STDIN_FILENO, &m_pwd_old) < 0) return false;
 
-        termios noecho = m_pwd_old;
-        noecho.c_lflag &= ~ECHO;
-        if (tcsetattr(STDIN_FILENO, TCSANOW, &noecho) < 0) return false;
+        termios no_echo = m_pwd_old;
+        no_echo.c_lflag &= ~ECHO;
+        if (tcsetattr(STDIN_FILENO, TCSANOW, &no_echo) < 0) return false;
 
-        write(STDOUT_FILENO, prompt.data(), prompt.size());
+        auto _ = write(STDOUT_FILENO, prompt.data(), prompt.size());
         m_pwd_buf.clear();
         m_pwd_active = true;
         return true;
@@ -130,7 +130,7 @@ namespace term {
     constexpr void guard::end_pwd() noexcept {
         if (!m_pwd_active) return;
         tcsetattr(STDIN_FILENO, TCSANOW, &m_pwd_old);
-        write(STDOUT_FILENO, "\n", 1);
+        auto _ = write(STDOUT_FILENO, "\n\r", 1);
         m_pwd_active = false;
     }
 } // term

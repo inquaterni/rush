@@ -17,7 +17,7 @@ option(RUSH_ENABLE_NO_EXCEPT      "Enable -fno-exceptions"                     O
 option(RUSH_ENABLE_NO_RTTI        "Enable -fno-rtti"                           ON)
 option(RUSH_ENABLE_FAST_MATH      "Enable -ffast-math (not recommended)"       OFF)
 
-set(CMAKE_POSITION_INDEPENDENT_CODE RUSH_ENABLE_PIC)
+set(CMAKE_POSITION_INDEPENDENT_CODE ${RUSH_ENABLE_PIC})
 
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)

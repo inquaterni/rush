@@ -401,7 +401,7 @@ namespace net {
             [&] (const shell_message &sh_msg) {
                 switch (sh_msg.type) {
                     case packet_type::BYTES: {
-                        write(STDOUT_FILENO, sh_msg.bytes.data(), sh_msg.bytes.size());
+                        auto _ = write(STDOUT_FILENO, sh_msg.bytes.data(), sh_msg.bytes.size());
                     } break;
                     case packet_type::DISCONNECT: {
                         transition::disconnect(sh_msg.bytes);
