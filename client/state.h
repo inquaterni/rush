@@ -110,15 +110,21 @@ namespace net {
     class await_password final : public state {
     public:
         constexpr await_password() noexcept = default;
+        constexpr explicit await_password(const int retries) noexcept
+        : retries(retries) {}
 
         [[nodiscard]]
         auto handle(const std::shared_ptr<client> &c, const pwd_response_event &e, const crypto::cipher &cipher,
                     std::string_view user) const noexcept;
+    private:
+        int retries{0};
     };
     class authenticating final : public state {
     public:
-        static constinit inline int max_retries {1};
+        static constinit inline int max_retries {2};
         constexpr authenticating() noexcept = default;
+        constexpr explicit authenticating(const int retries) noexcept
+        : retries(retries) {}
 
         [[nodiscard]]
         auto handle(const std::shared_ptr<client> &c, receive_event &e, const crypto::cipher &cipher) noexcept;
@@ -328,7 +334,7 @@ namespace net {
             return transition::keep();
         }
 
-        return transition::to(authenticating{});
+        return transition::to(authenticating{retries});
     }
 
     // ReSharper disable once CppMemberFunctionMayBeStatic
@@ -347,13 +353,13 @@ namespace net {
                     case packet_type::AUTH_RESPONSE: {
                         if (!is_confirm_client(sh_msg.bytes)) {
                             spdlog::info(std::string_view{reinterpret_cast<const char *>(sh_msg.bytes.data()), sh_msg.bytes.size()});
-                            if (retries++ > max_retries) {
+                            if (++retries > max_retries) {
                                 return transition::disconnect("Maximum retries exceeded.");
                             }
                             spdlog::info("Try again.");
 
                             event_bus_t::instance().enqueue(pwd_request_event{});
-                            return transition::to(await_password{});
+                            return transition::to(await_password{retries});
                         }
                         const auto ws = tunnel::tunnel_session::get_window_size();
                         if (!ws) [[unlikely]] {
