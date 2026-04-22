@@ -14,6 +14,18 @@ namespace crypto {
 
     class key_pair {
     public:
+        static constexpr std::expected<key_pair, std::string> enroll() {
+            if (!guard::is_initialized()) {
+                return std::unexpected {"Libsodium is not initialized."};
+            }
+
+            pkey_t pub_key;
+            skey_t sec_key;
+            crypto_kx_keypair(pub_key.data(), sec_key.data());
+
+            return key_pair {pub_key, sec_key};
+        }
+
         consteval key_pair() noexcept = default;
 
         constexpr key_pair(const pkey_t& /* public key */,

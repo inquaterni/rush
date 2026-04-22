@@ -30,7 +30,7 @@ Rush is a modern, high-performance C++23 networking project designed to demonstr
 
 - C++23 compatible compiler (e.g., GCC 14+, Clang 18+)
 - CMake 3.31+
-- **Linux** (Windows is not supported, macOS and other UNIX-like systems are untested)
+- **Linux**
 - **PAM Development Headers**
 - **sshd PAM usage** (Server expects to authenticate via PAM using `sshd` configuration)
 

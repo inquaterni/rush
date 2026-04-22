@@ -9,7 +9,7 @@
 
 #include "../net/include/host.h"
 #include "cipher.h"
-#include "keys_factory.h"
+#include "session_keys.h"
 #include "packet_serializer.h"
 #include "pty_pumper.h"
 #include "session.h"
@@ -189,7 +189,7 @@ namespace net {
             }
             return transition::keep();
         }
-        const auto sk = crypto::keys_factory::enroll_sk_server(pair, hs->public_key);
+        const auto sk = crypto::session_keys::enroll_server(pair, hs->public_key);
         if (!sk) [[unlikely]] {
             if (retries++ > max_retries) {
                 return transition::disconnect("Maximum retries exceeded.");

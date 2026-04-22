@@ -9,7 +9,7 @@
 #include "client.h"
 #include "guard.h"
 #include "key_pair.h"
-#include "keys_factory.h"
+#include "session_keys.h"
 #include "tunnel_session.h"
 #include "xchacha20poly1305.h"
 
@@ -230,7 +230,7 @@ namespace net {
         }
         return std::visit(overloaded {
             [&] (const handshake_packet &hs) constexpr {
-                const auto sk = crypto::keys_factory::enroll_sk_client(pair, hs.public_key);
+                const auto sk = crypto::session_keys::enroll_client(pair, hs.public_key);
                 if (!sk) [[unlikely]] {
                     if (retries++ > max_retries) {
                         return transition::disconnect("Maximum retries exceeded.");

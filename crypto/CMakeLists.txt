@@ -21,7 +21,6 @@ set(RUSH_CRYPTO_INCLUDES
         include/types.h
         include/session_keys.h
         include/cipher.h
-        include/keys_factory.h
         include/encryption.h
         include/xchacha20poly1305.h
 )
