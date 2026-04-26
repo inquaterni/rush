@@ -1,12 +1,27 @@
+// Copyright (c) 2026 Maksym Matskevych
 //
-// Created by inquaterni on 1/14/26.
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
 #ifndef STATE_H
 #define STATE_H
 #include <memory>
 #include <utility>
-
 #include "../net/include/host.h"
 #include "cipher.h"
 #include "session_keys.h"
@@ -15,10 +30,8 @@
 #include "session.h"
 #include "signals.hpp"
 #include "xchacha20poly1305.h"
-
 namespace net {
     using namespace std::chrono_literals;
-
     struct keep_state_t {};
     struct disconnect_t {
         std::string reason {};
@@ -35,10 +48,8 @@ namespace net {
     class conn_confirm;
     class auth;
     class connected;
-
     static constexpr u8 c_confirm_magic[] = "CONFIRM";
     static constexpr u8 s_confirm_magic[] = "OK";
-
     // NOTE: `is_confirm_X` checks if `data` is a valid confirmation FROM X.
     // `is_confirm_client` checks for server-sent magic (s_confirm_magic, "OK").
     // `is_confirm_server` checks for client-sent magic (c_confirm_magic, "CONFIRM").
@@ -50,18 +61,14 @@ namespace net {
         return data.size() == sizeof(c_confirm_magic) &&
                    std::memcmp(data.data(), c_confirm_magic, sizeof(c_confirm_magic)) == 0;
     }
-
     class state {
     public:
         constexpr state() noexcept = default;
         virtual ~state() = default;
-
         state& operator=(state&&) = default;
         state(state&&) = default;
-
         state& operator=(const state&) = delete;
         state(const state&) = delete;
-
         constexpr auto dispatch(this auto&& self, auto&&... args) noexcept {
             static_assert(requires { self.handle(std::forward<decltype(args)>(args)...); },
                 "Derived class must implement `handle` member.");
@@ -72,9 +79,7 @@ namespace net {
     public:
         inline static constinit auto max_duration = 500ms;
         inline static constinit auto max_retries = 3;
-
         constexpr handshake() noexcept = default;
-
         handshake(handshake&&) = default;
         handshake &operator=(handshake &&other) noexcept {
             if (this != &other) {
@@ -83,10 +88,8 @@ namespace net {
             }
             return *this;
         }
-
         [[nodiscard]]
         auto handle(const std::shared_ptr<host> &h, receive_event &e, const crypto::key_pair &pair) noexcept;
-
     private:
         std::chrono::steady_clock::time_point hs_start_point{std::chrono::steady_clock::now()};
         int retries{0};
@@ -95,10 +98,8 @@ namespace net {
     public:
         inline static constinit auto max_duration = 250ms;
         constexpr conn_confirm() = default;
-
         constexpr conn_confirm(conn_confirm&&) = default;
         constexpr conn_confirm& operator=(conn_confirm&&) = default;
-
         [[nodiscard]]
         auto handle(const std::shared_ptr<host> &h, receive_event &e, const crypto::cipher &c) const noexcept;
     private:
@@ -107,24 +108,19 @@ namespace net {
     class auth final : public state {
     public:
         constexpr auth() noexcept = default;
-
         [[nodiscard]]
         auto handle(receive_event &e, const crypto::cipher &c) const noexcept;
     };
     class connected final : public state {
     public:
         constexpr connected() = default;
-
         constexpr connected(connected&&) = default;
         constexpr connected& operator=(connected&&) = default;
-
         [[nodiscard]]
         auto handle(const std::shared_ptr<host> &h, receive_event &e, const crypto::cipher &c, const pty::session &session) const noexcept;
     };
-
     using state_t = std::variant<handshake, conn_confirm, auth, connected>;
     using transition_t = std::variant<keep_state_t, disconnect_t, establish_t, activate_session_t, state_t>;
-
     struct transition {
         static constexpr transition_t keep() noexcept { return {keep_state_t {}}; }
         static constexpr transition_t disconnect() noexcept { return {disconnect_t{}}; }
@@ -148,21 +144,17 @@ namespace net {
             return state_t(std::move(new_state));
         }
     };
-
     class peer_context {
     public:
         using host_ptr = std::shared_ptr<host>;
-
         constexpr peer_context(host_ptr host, state_t state, const crypto::key_pair &keys,
                                asio::io_context &ctx) noexcept :
             m_ctx(ctx), m_host(std::move(host)), state(std::move(state)), m_keys(keys) {}
         constexpr void handle(receive_event &e) noexcept;
-
         constexpr ~peer_context() noexcept {
             if (pump)
                 pump->stop();
         }
-
     private:
         asio::io_context &m_ctx;
         host_ptr m_host;
@@ -172,7 +164,6 @@ namespace net {
         std::unique_ptr<pty::session> session{nullptr};
         std::shared_ptr<pty_pumper> pump{nullptr};
     };
-
     inline auto handshake::handle(const std::shared_ptr<host> &h, receive_event &e,
                                   const crypto::key_pair &pair) noexcept {
         if (std::chrono::steady_clock::now() - hs_start_point > max_duration) {
@@ -200,10 +191,8 @@ namespace net {
             if (retries++ > max_retries) {
                 return transition::disconnect("Maximum retries exceeded.");
             }
-
             return transition::keep();
         }
-
         auto encryptor = std::make_unique<crypto::xchacha20poly1305>(*sk);
         return transition::establish(crypto::cipher(std::move(encryptor)));
     }
@@ -237,7 +226,6 @@ namespace net {
         if (!h->send(e.peer(), std::move(*encrypted))) {
             return transition::keep();
         }
-
         return transition::to(auth{});
     }
     // ReSharper disable once CppMemberFunctionMayBeStatic
@@ -254,7 +242,6 @@ namespace net {
         if (!request) [[unlikely]] {
             return transition::keep();
         }
-
         return transition::activate_session(request->username, request->password);
     }
     // ReSharper disable once CppMemberFunctionMayBeStatic
@@ -269,7 +256,6 @@ namespace net {
         if (!pkt) [[unlikely]] {
             return transition::keep();
         }
-
         return std::visit(overloaded {
             [&] (const shell_message &sh_msg) constexpr  {
                 switch (sh_msg.type) {
@@ -287,9 +273,7 @@ namespace net {
                     } break;
                     default: return transition::keep();
                 }
-
                 return transition::keep();
-
             },
             [&] (const resize_packet &win_resize) constexpr {
                 ioctl(session.fd(), TIOCSWINSZ, &win_resize.ws);
@@ -313,7 +297,6 @@ namespace net {
                 return s.dispatch(m_host, e, *cipher, *session);
             }
         }, state);
-
         std::visit(overloaded {
             [] (keep_state_t &) constexpr {},
             [&] (const disconnect_t &d) constexpr {
@@ -332,7 +315,6 @@ namespace net {
                     }
                     this->m_host->send(e.peer(), std::move(*encrypted));
                 }
-
                 disconnect:
                 this->m_host->disconnect(e.peer());
             },
@@ -353,11 +335,9 @@ namespace net {
                         spdlog::error("Failed to encrypt error message: {}", encrypted.error());
                         return;
                     }
-
                     this->m_host->send(e.peer(), std::move(*encrypted));
                     return;
                 }
-
                 const auto data = std::vector<u8> {s_confirm_magic, s_confirm_magic + sizeof(s_confirm_magic)};
                 const auto pkt = shell_message {packet_type::AUTH_RESPONSE, data};
                 const auto words = serial::packet_serializer::serialize_into_pool(pkt);
@@ -368,7 +348,6 @@ namespace net {
                     return;
                 }
                 this->m_host->send(e.peer(), std::move(*encrypted));
-
                 this->session = std::move(*exp_sess);
                 this->pump = std::make_shared<pty_pumper>(
                     this->m_ctx,
@@ -386,7 +365,4 @@ namespace net {
         }, transition);
     }
 } // net
-
-
-
 #endif //STATE_H

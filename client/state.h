@@ -1,24 +1,37 @@
+// Copyright (c) 2026 Maksym Matskevych
 //
-// Created by inquaterni on 1/21/26.
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
 #ifndef STATE_H
 #define STATE_H
 #include <memory>
-
 #include "client.h"
 #include "guard.h"
 #include "key_pair.h"
 #include "session_keys.h"
 #include "tunnel_session.h"
 #include "xchacha20poly1305.h"
-
 namespace crypto {
     enum class side : u8;
 }
 namespace net {
     using namespace std::chrono_literals;
-
     struct keep_state_t {};
     struct activate_session_t {};
     struct disconnect_t {
@@ -27,7 +40,6 @@ namespace net {
     struct establish_t {
         crypto::cipher cipher;
     };
-
     class state;
     class init;
     class handshake;
@@ -35,14 +47,11 @@ namespace net {
     class await_password;
     class authenticating;
     class connected;
-
     static constexpr u8 c_confirm_magic[] = "CONFIRM";
     static constexpr u8 s_confirm_magic[] = "OK";
-
     // static constexpr u8 ansi_esc = 0x1B;
     // static constexpr u8 ansi_final_lo = 0x40;
     // static constexpr u8 ansi_final_hi = 0x7E;
-
     // NOTE: `is_confirm_X` checks if `data` is a valid confirmation FROM X.
     // `is_confirm_client` checks for server-sent magic (s_confirm_magic, "OK").
     // `is_confirm_server` checks for client-sent magic (c_confirm_magic, "CONFIRM").
@@ -54,18 +63,14 @@ namespace net {
         return data.size() == sizeof(c_confirm_magic) &&
                    std::memcmp(data.data(), c_confirm_magic, sizeof(c_confirm_magic)) == 0;
     }
-
     class state {
     public:
         constexpr state() noexcept = default;
         virtual ~state() = default;
-
         state& operator=(state&&) = default;
         state(state&&) = default;
-
         state& operator=(const state&) = delete;
         state(const state&) = delete;
-
         constexpr auto dispatch(this auto&& self, auto&&... args) noexcept {
             static_assert(requires { self.handle(std::forward<decltype(args)>(args)...); },
                 "Derived class must implement `handle` member.");
@@ -76,9 +81,7 @@ namespace net {
     public:
         inline static constinit auto max_duration = 250ms;
         inline static constinit auto max_retries = 3;
-
         constexpr handshake() noexcept = default;
-
         handshake(handshake&&) = default;
         handshake &operator=(handshake &&other) noexcept {
             if (this != &other) {
@@ -87,7 +90,6 @@ namespace net {
             }
             return *this;
         }
-
         [[nodiscard]]
         auto handle(const std::shared_ptr<client> &c, const receive_event& e, const crypto::key_pair &pair) noexcept;
     private:
@@ -98,10 +100,8 @@ namespace net {
     public:
         inline static constinit auto max_duration = 250ms;
         constexpr conn_confirm() noexcept = default;
-
         constexpr conn_confirm(conn_confirm&&) = default;
         constexpr conn_confirm& operator=(conn_confirm&&) = default;
-
         [[nodiscard]]
         auto handle(const receive_event &e, const crypto::cipher &cipher) const noexcept;
     private:
@@ -112,7 +112,6 @@ namespace net {
         constexpr await_password() noexcept = default;
         constexpr explicit await_password(const int retries) noexcept
         : retries(retries) {}
-
         [[nodiscard]]
         auto handle(const std::shared_ptr<client> &c, const pwd_response_event &e, const crypto::cipher &cipher,
                     std::string_view user) const noexcept;
@@ -125,7 +124,6 @@ namespace net {
         constexpr authenticating() noexcept = default;
         constexpr explicit authenticating(const int retries) noexcept
         : retries(retries) {}
-
         [[nodiscard]]
         auto handle(const std::shared_ptr<client> &c, receive_event &e, const crypto::cipher &cipher) noexcept;
     private:
@@ -134,10 +132,8 @@ namespace net {
     class connected final : public state {
     public:
         constexpr connected() = default;
-
         constexpr connected(connected&&) = default;
         constexpr connected& operator=(connected&&) = default;
-
         [[nodiscard]]
         auto handle(const std::shared_ptr<client> &c, const receive_event &e,
                     const crypto::cipher &cipher) const noexcept;
@@ -166,10 +162,8 @@ namespace net {
         //     }
         // }
     };
-
     using state_t = std::variant<handshake, conn_confirm, await_password, authenticating, connected>;
     using transition_t = std::variant<keep_state_t, disconnect_t, establish_t, activate_session_t, state_t>;
-
     struct transition {
         static constexpr transition_t keep() noexcept { return {keep_state_t {}}; }
         static constexpr transition_t disconnect() noexcept { return {disconnect_t{}}; }
@@ -198,21 +192,17 @@ namespace net {
             return state_t(std::move(new_state));
         }
     };
-
     class client_context {
     public:
         using client_ptr = std::shared_ptr<client>;
-
         constexpr client_context(client_ptr host, state_t state, const crypto::key_pair &keys,
                                  asio::io_context &ctx,
                                  const std::string_view username, asio::signal_set &sigset) noexcept :
             m_ctx(ctx), m_client(std::move(host)), state(std::move(state)), m_keys(keys), signals(sigset), m_username(username) {}
         constexpr void handle(event &e) noexcept;
-
         constexpr ~client_context() noexcept {
             if (m_sess) m_sess->stop();
         }
-
     private:
         asio::io_context &m_ctx;
         client_ptr m_client;
@@ -229,7 +219,6 @@ namespace net {
         if (std::chrono::steady_clock::now() - hs_start_point > max_duration) {
             return transition::disconnect("Timeout reached.");
         }
-
         const auto pkt = serial::packet_serializer::deserialize(u8_span_to_word_span(e.payload()));
         if (!pkt) {
             return transition::keep();
@@ -243,10 +232,8 @@ namespace net {
                     }
                     return transition::keep();
                 }
-
                 auto encryptor = std::make_unique<crypto::xchacha20poly1305>(*sk);
                 auto cipher = crypto::cipher(std::move(encryptor));
-
                 constexpr auto confirm = shell_message{packet_type::BYTES,
                                                    std::span(c_confirm_magic, c_confirm_magic + sizeof(c_confirm_magic))};
                 const auto buf = serial::packet_serializer::serialize_into_pool(confirm);
@@ -255,17 +242,14 @@ namespace net {
                     if (retries++ > max_retries) {
                         return transition::disconnect("Maximum retries exceeded.");
                     }
-
                     return transition::keep();
                 }
                 if (!c->send(std::move(**encrypted))) [[unlikely]] {
                     if (retries++ > max_retries) {
                         return transition::disconnect("Maximum retries exceeded.");
                     }
-
                     return transition::keep();
                 }
-
                 return transition::establish(std::move(cipher));
             },
             [&] (const shell_message &sh_msg) constexpr {
@@ -275,7 +259,6 @@ namespace net {
                     }
                     return transition::keep();
                 }
-
                 return transition::disconnect(sh_msg.bytes);
             },
             [&] (auto &) constexpr {
@@ -306,7 +289,6 @@ namespace net {
                         if (!is_confirm_client(sh_msg.bytes)) {
                             return transition::keep();
                         }
-
                         event_bus_t::instance().enqueue(pwd_request_event{});
                         return transition::to(await_password{});
                     }
@@ -321,7 +303,6 @@ namespace net {
             }
         }, *pkt);
     }
-
     // ReSharper disable once CppMemberFunctionMayBeStatic
     inline auto await_password::handle(const std::shared_ptr<client> &c, const pwd_response_event &e, const crypto::cipher &cipher, const std::string_view user) const noexcept {
         const auto auth_request = auth_packet{user, e.pwd()};
@@ -333,10 +314,8 @@ namespace net {
         if (!c->send(std::move(**encrypted))) {
             return transition::keep();
         }
-
         return transition::to(authenticating{retries});
     }
-
     // ReSharper disable once CppMemberFunctionMayBeStatic
     inline auto authenticating::handle(const std::shared_ptr<client> &c, receive_event &e, const crypto::cipher &cipher) noexcept {
         const auto decrypted = cipher.decrypt_inplace(e.payload());
@@ -357,7 +336,6 @@ namespace net {
                                 return transition::disconnect("Maximum retries exceeded.");
                             }
                             spdlog::info("Try again.");
-
                             event_bus_t::instance().enqueue(pwd_request_event{});
                             return transition::to(await_password{retries});
                         }
@@ -377,7 +355,6 @@ namespace net {
                             spdlog::warn("Failed to send encrypted data.");
                             return transition::activate_session();
                         }
-
                         return transition::activate_session();
                     }
                     case packet_type::DISCONNECT: {
@@ -402,7 +379,6 @@ namespace net {
         if (!pkt) [[unlikely]] {
             return transition::keep();
         }
-
         return std::visit(overloaded {
             [&] (const shell_message &sh_msg) {
                 switch (sh_msg.type) {
@@ -414,14 +390,11 @@ namespace net {
                     } break;
                     default: return transition::keep();
                 }
-
                 return transition::keep();
-
             },
             [&] (auto &&) constexpr {return transition::keep();}
         }, *pkt);
     }
-
     constexpr void client_context::handle(event &e) noexcept {
         auto transition = std::visit<transition_t>( overloaded {
             [&] (receive_event &re) constexpr -> transition_t {
@@ -457,7 +430,6 @@ namespace net {
                 return transition::keep();
             }
         }, e);
-
         std::visit(overloaded {
             [&] (keep_state_t &) constexpr {},
             [&] (const disconnect_t &d) constexpr {
@@ -469,7 +441,6 @@ namespace net {
                 }
                 if (this->m_guard.is_raw()) this->m_guard.disable_raw_mode();
                 if (this->m_sess) this->m_sess->stop();
-
                 this->m_client->disconnect();
             },
             [&] (establish_t &est) constexpr {
@@ -483,14 +454,12 @@ namespace net {
                     spdlog::error("Failed to enable raw mode.");
                     this->m_client->disconnect();
                 }
-
                 this->m_sess = std::make_shared<tunnel::tunnel_session>(
                     this->m_ctx,
                     this->m_client,
                     *this->cipher,
                     this->signals
                     );
-
                 this->m_sess->start();
                 this->state = connected {};
             },
@@ -499,7 +468,5 @@ namespace net {
             }
         }, transition);
     }
-
 } // net
-
 #endif //STATE_H

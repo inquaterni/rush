@@ -1,23 +1,36 @@
+// Copyright (c) 2026 Maksym Matskevych
 //
-// Created by inquaterni on 1/21/26.
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
 #ifndef SESSION_H
 #define SESSION_H
 #include <memory>
-
 #include "../../client/client.h"
 #include "asio/posix/basic_stream_descriptor.hpp"
 #include "asio/posix/stream_descriptor.hpp"
 #include "asio/signal_set.hpp"
 #include "signals.hpp"
-
 namespace tunnel {
     static constexpr auto key_map = std::to_array<std::pair<net::u8, int>>({
         { 0x03, SIGINT },
         { 0x1C, SIGQUIT }
     });
-
     class tunnel_session : public std::enable_shared_from_this<tunnel_session> {
     public:
         constexpr tunnel_session(asio::io_context &ctx, const std::shared_ptr<net::client> &c, crypto::cipher &cipher, asio::signal_set &sigset) noexcept
@@ -26,12 +39,10 @@ namespace tunnel {
           m_cipher(cipher),
           m_stream(ctx, dup(STDIN_FILENO)),
           m_signals(sigset) {}
-
         constexpr void do_read_stdin() noexcept;
         constexpr void do_wait_signal() noexcept;
         constexpr void start() noexcept;
         constexpr void stop() noexcept;
-
         static constexpr std::optional<winsize> get_window_size() noexcept;
     private:
         asio::io_context &io_ctx;
@@ -65,13 +76,11 @@ namespace tunnel {
         m_signals.async_wait([self](const std::error_code &ec, const int signo) {
             if (ec)
                 return;
-
             switch (signo) {
                 case SIGWINCH: {
                     winsize ws{};
                     if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) < 0) [[unlikely]]
                         break;
-
                     const auto pkt = net::resize_packet{ws};
                     const auto words = serial::packet_serializer::serialize_into_pool(pkt);
                     const auto encrypted = self->m_cipher.encrypt_inplace(std::span(*words));
@@ -89,7 +98,6 @@ namespace tunnel {
                     const auto msg = net::sig2name(signo);
                     if (!msg)
                         break;
-
                     const auto pkt = net::shell_message{net::packet_type::SIGNAL, *msg};
                     const auto words = serial::packet_serializer::serialize_into_pool(pkt);
                     const auto encrypted = self->m_cipher.encrypt_inplace(std::span(*words));
@@ -118,10 +126,7 @@ namespace tunnel {
         winsize ws{};
         if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) < 0) [[unlikely]]
             return std::nullopt;
-
         return ws;
     }
-
 } // tunnel
-
 #endif //SESSION_H

@@ -1,66 +1,69 @@
+// Copyright (c) 2026 Maksym Matskevych
 //
-// Created by inquaterni on 1/11/26.
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
 #ifndef XCHACHA20POLY1305_H
 #define XCHACHA20POLY1305_H
 #include <guard.h>
 #include <sodium/crypto_aead_xchacha20poly1305.h>
 #include <sodium/randombytes.h>
-
-
 #include "encryption.h"
 #include "guard.h"
-
-
 namespace crypto {
     class xchacha20poly1305 final : public encryption {
     public:
         explicit constexpr xchacha20poly1305(const session_keys &ss) noexcept;
         explicit constexpr xchacha20poly1305(session_keys &&ss) noexcept;
-
         [[nodiscard]] constexpr std::expected<std::vector<u8>, std::string> encrypt(const std::span<const u8> &) override;
         [[nodiscard]] constexpr std::expected<std::vector<u8>, std::string> encrypt(const std::vector<u8> &) override;
         [[nodiscard]] constexpr std::expected<std::unique_ptr<std::vector<u8>, void (*)(std::vector<u8> *)>,
                                               std::string>
         encrypt_inplace(const std::span<const u8> &) override;
-
         [[nodiscard]] constexpr std::expected<std::vector<u8>, std::string> decrypt(const std::span<const u8> &) override;
         [[nodiscard]] constexpr std::expected<std::vector<u8>, std::string> decrypt(const std::vector<u8> &) override;
         [[nodiscard]] constexpr std::expected<std::span<u8>, std::string>
         decrypt_inplace(const std::span<u8> &) override;
         [[nodiscard]] constexpr std::expected<std::shared_ptr<std::vector<u8>>, std::string>
         decrypt_inplace(const std::span<const u8> &) override;
-
     private:
         constexpr static u64 nonce_len = crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
         constexpr static u64 mac_len = crypto_aead_xchacha20poly1305_ietf_ABYTES;
-
         session_keys ss;
     };
     constexpr xchacha20poly1305::xchacha20poly1305(const session_keys &ss) noexcept: ss {ss} {}
     constexpr xchacha20poly1305::xchacha20poly1305(session_keys &&ss) noexcept :
         ss{std::forward<session_keys>(ss)} {}
-
     constexpr std::expected<std::vector<u8>, std::string> xchacha20poly1305::encrypt(const std::span<const u8> &message) {
         if (!guard::is_initialized()) {
             return std::unexpected{"Sodium is not initialized."};
         }
         std::vector<u8> encrypted{};
         encrypted.resize(message.size() + nonce_len + mac_len);
-
         randombytes_buf(encrypted.data(), nonce_len);
-
         u64 ciphertext_len;
         const int err = crypto_aead_xchacha20poly1305_ietf_encrypt(encrypted.data() + nonce_len, &ciphertext_len,
                                                                    message.data(), message.size(), nullptr, 0, nullptr,
                                                                    encrypted.data(), ss.tx().data());
-
         if (err != 0) {
             return std::unexpected{"Sodium encryption failed."};
         }
         encrypted.resize(nonce_len + ciphertext_len);
-
         return encrypted;
     }
     constexpr std::expected<std::vector<u8>, std::string> xchacha20poly1305::encrypt(const std::vector<u8> &message) {
@@ -69,19 +72,15 @@ namespace crypto {
         }
         std::vector<u8> encrypted{};
         encrypted.resize(message.size() + nonce_len + mac_len);
-
         randombytes_buf(encrypted.data(), nonce_len);
-
         u64 ciphertext_len;
         const int err = crypto_aead_xchacha20poly1305_ietf_encrypt(encrypted.data() + nonce_len, &ciphertext_len,
                                                                    message.data(), message.size(), nullptr, 0, nullptr,
                                                                    encrypted.data(), ss.tx().data());
-
         if (err != 0) {
             return std::unexpected{"Sodium encryption failed."};
         }
         encrypted.resize(nonce_len + ciphertext_len);
-
         return encrypted;
     }
     constexpr std::expected<std::unique_ptr<std::vector<u8>, void (*)(std::vector<u8> *)>, std::string>
@@ -91,22 +90,17 @@ namespace crypto {
         }
         auto encrypted = net::object_pool<std::vector<u8>>::get_instance().acquire();
         encrypted->resize(message.size() + nonce_len + mac_len);
-
         randombytes_buf(encrypted->data(), nonce_len);
-
         u64 ciphertext_len;
         const int err = crypto_aead_xchacha20poly1305_ietf_encrypt(encrypted->data() + nonce_len, &ciphertext_len,
                                                                    message.data(), message.size(), nullptr, 0, nullptr,
                                                                    encrypted->data(), ss.tx().data());
-
         if (err != 0) {
             return std::unexpected{"Sodium encryption failed."};
         }
         encrypted->resize(nonce_len + ciphertext_len);
-
         return encrypted;
     }
-
     constexpr std::expected<std::vector<u8>, std::string> xchacha20poly1305::decrypt(const std::span<const u8> &cipher) {
         if (!guard::is_initialized()) {
             return std::unexpected{"Sodium is not initialized."};
@@ -120,13 +114,11 @@ namespace crypto {
         std::vector<u8> decrypted{};
         decrypted.resize(ciphertext_len - mac_len);
         u64 decrypted_len;
-
         const int err = crypto_aead_xchacha20poly1305_ietf_decrypt(decrypted.data(), &decrypted_len, nullptr, ciphertext,
                                                                   ciphertext_len, nullptr, 0, nonce, ss.rx().data());
         if (err != 0) {
             return std::unexpected{"Sodium decryption failed."};
         }
-
         return decrypted;
     }
     constexpr std::expected<std::vector<u8>, std::string> xchacha20poly1305::decrypt(const std::vector<u8> &cipher) {
@@ -142,14 +134,12 @@ namespace crypto {
         std::vector<u8> decrypted{};
         decrypted.resize(ciphertext_len - mac_len);
         u64 decrypted_len;
-
         const int err =
                 crypto_aead_xchacha20poly1305_ietf_decrypt(decrypted.data(), &decrypted_len, nullptr, ciphertext,
                                                            ciphertext_len, nullptr, 0, nonce, ss.rx().data());
         if (err != 0) {
             return std::unexpected{"Sodium decryption failed."};
         }
-
         return decrypted;
     }
     constexpr std::expected<std::span<u8>, std::string> xchacha20poly1305::decrypt_inplace(const std::span<u8> &cipher) {
@@ -163,14 +153,12 @@ namespace crypto {
         u8 *ciphertext = cipher.data() + nonce_len;
         const u64 ciphertext_len = cipher.size() - nonce_len;
         u64 decrypted_len;
-
         const int err = crypto_aead_xchacha20poly1305_ietf_decrypt(ciphertext, &decrypted_len, nullptr,
                                                                     ciphertext, ciphertext_len, nullptr,
                                                                     0, nonce, ss.rx().data());
         if (err != 0) {
             return std::unexpected{"Sodium decryption failed."};
         }
-
         return std::span {ciphertext, decrypted_len};
     }
     constexpr std::expected<std::shared_ptr<std::vector<u8>>, std::string> xchacha20poly1305::decrypt_inplace(const std::span<const u8> &cipher) {
@@ -186,21 +174,15 @@ namespace crypto {
         const u8 *ciphertext = cipher.data() + nonce_len;
         const u64 ciphertext_len = cipher.size() - nonce_len;
         u64 decrypted_len;
-
         pooled->resize(ciphertext_len);
-
         const int err = crypto_aead_xchacha20poly1305_ietf_decrypt(pooled->data(), &decrypted_len, nullptr,
                                                                    ciphertext, ciphertext_len, nullptr,
                                                                    0, nonce, ss.rx().data());
         if (err != 0) {
             return std::unexpected{"Sodium decryption failed."};
         }
-
         pooled->resize(decrypted_len);
         return pooled;
     }
 } // crypto
-
-
-
 #endif //XCHACHA20POLY1305_H

@@ -1,7 +1,23 @@
+// Copyright (c) 2026 Maksym Matskevych
 //
-// Created by inquaterni on 1/7/26.
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
 #ifndef PACKET_SERIALIZER_H
 #define PACKET_SERIALIZER_H
 #include <capnp/message.h>
@@ -14,15 +30,12 @@
 #include "schemas/packet.capnp.h"
 #include "object_pool.h"
 #include "packet.h"
-
 namespace serial {
-
 class packet_serializer {
 public:
     static constexpr kj::Array<capnp::word> serialize(const net::packet &pkt) {
         capnp::MallocMessageBuilder message;
         auto root = message.initRoot<Packet>();
-
         std::visit( net::overloaded {
             [&] (const net::handshake_packet &p) {
                 auto hs = root.initHandshake();
@@ -63,10 +76,8 @@ public:
                 auth.setPasswd(p.password.data());
             }
         }, pkt);
-
         return capnp::messageToFlatArray(message);
     }
-
     static auto serialize_into_pool(const net::packet &pkt) {
         size_t max_size = 256;
         std::visit(net::overloaded{
@@ -75,9 +86,7 @@ public:
             [&](const net::resize_packet &) { },
             [&](const net::auth_packet &p) { max_size += p.username.size() + p.password.size(); }
         }, pkt);
-
         max_size = (max_size + sizeof(capnp::word) - 1) & ~(sizeof(capnp::word) - 1);
-
         auto buf = net::object_pool_t::get_instance().acquire();
         buf->resize(max_size);
         auto* out_words = reinterpret_cast<capnp::word*>(buf->data());
@@ -85,10 +94,8 @@ public:
             out_words + 1,
             buf->size() / sizeof(capnp::word) - 1
         );
-
         capnp::FlatMessageBuilder message(word_span);
         auto root = message.initRoot<Packet>();
-
         std::visit( net::overloaded {
             [&] (const net::handshake_packet &p) {
                 auto hs = root.initHandshake();
@@ -122,31 +129,24 @@ public:
                 auth.setPasswd(capnp::Text::Reader(p.password.data(), p.password.size()));
             }
         }, pkt);
-
         auto segments = message.getSegmentsForOutput();
         assert(segments.size() == 1 && "Message grew beyond 1 segment!");
-
         // Write the segment table.
         // Word 0: bytes 0..3 = number of segments - 1 (0), bytes 4..7 = size of segment 0 in words
         auto* table = reinterpret_cast<net::u8*>(out_words);
-
         std::fill_n(table, 4, net::u8{0});
-
         const net::u32 size = segments[0].size();
         std::ranges::copy(std::views::iota(0, 4)
             | std::views::transform([size](const int i) constexpr {
                 return static_cast<net::u8>(size >> (i * 8));
             }), table + 4);
-
         buf->resize((1 + size) * sizeof(capnp::word));
         return buf;
     }
-
     static constexpr std::expected<net::packet, std::string> deserialize(const std::span<const capnp::word> &data) {
         if (data.empty()) {
             return std::unexpected{"Packet is empty."};
         }
-
         const auto* table = reinterpret_cast<const uint32_t*>(data.data());
         const uint32_t segments_count = table[0] + 1;
         if (segments_count > 64) {
@@ -171,7 +171,6 @@ public:
         try {
 #endif
             capnp::FlatArrayMessageReader reader{kj::arrayPtr(data.data(), data.size())};
-
             switch (const auto packet_reader = reader.getRoot<Packet>(); packet_reader.which()) {
                 case Packet::HANDSHAKE: {
                     const auto key = packet_reader.getHandshake();
@@ -218,7 +217,5 @@ public:
         return std::unexpected {"Unreachable"};
     }
 };
-
 } // serial
-
 #endif //PACKET_SERIALIZER_H

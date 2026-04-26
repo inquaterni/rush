@@ -1,15 +1,29 @@
+// Copyright (c) 2026 Maksym Matskevych
 //
-// Created by inquaterni on 1/14/26.
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+//
 #ifndef SERVER_H
 #define SERVER_H
 #include <expected>
 #include <memory>
 #include <string>
 #include <variant>
-
-
 #include "concurrentqueue.h"
 #include "event.h"
 #include "guard.h"
@@ -22,30 +36,23 @@
 #else
     #define RUSH_TEST_VIRTUAL
 #endif
-
 namespace net {
     struct packet_data_ {
         object_pool_t::pool_ptr data {nullptr, [] (object_pool_t::pointer) {}};
         ENetPeer *peer {nullptr};
         u32 flags{};
         u8 channel{};
-
         packet_data_(object_pool_t::pool_ptr data, ENetPeer *peer, const u32 flags, const u8 channel) noexcept :
             data(std::move(data)), peer(peer), flags(flags), channel(channel) {}
-
         packet_data_() = default;
     };
-
     struct disconnect {
         ENetPeer *peer {nullptr};
         u32 data;
-
         explicit disconnect(ENetPeer *peer, const u32 data = 0) noexcept
         : peer(peer), data(data) {}
     };
-
     using packet_data = std::variant<packet_data_, disconnect>;
-
     class host {
     public:
         using host_type = std::unique_ptr<ENetHost, host_deleter>;
@@ -55,7 +62,6 @@ namespace net {
         virtual ~host() = default;
 #endif
         explicit constexpr host(host_type && /* host */) noexcept;
-
         constexpr static std::expected<std::shared_ptr<host>, std::string>
         create(in6_addr /* address */, int /* port */) noexcept;
         [[nodiscard]]
@@ -68,24 +74,20 @@ namespace net {
         constexpr void send_loop() noexcept;
         constexpr void shutdown() noexcept;
         constexpr int enet_host_service_locked(ENetHost *host, ENetEvent *event, enet_uint32 timeout);
-
     protected:
         moodycamel::ConcurrentQueue<packet_data> m_packets {};
         std::mutex m_mutex {};
         host_type m_host;
         std::atomic_bool m_running = true;
     };
-
     constexpr host::host(host_type &&host) noexcept
     : m_host(std::forward<host_type>(host)) {}
     constexpr std::expected<std::shared_ptr<host>, std::string> host::create(const in6_addr addr, const int port) noexcept {
         if (!guard::is_initialized())
             return std::unexpected{"ENet is not initialized."};
-
         ENetAddress address {};
         address.host = addr;
         address.port = port;
-
         auto server_host = host_type{
                 enet_host_create(&address /* the address to bind the server host to */,
                                  max_clients /* allow up to `max_clients` clients and/or outgoing connections */,
@@ -98,7 +100,6 @@ namespace net {
             return std::unexpected{
                     "An error occurred while trying to create an ENet server host. Is this host occupied?"};
         }
-
         return std::make_shared<host>(std::move(server_host));
     }
     constexpr std::expected<event, std::string> host::service(const int timeout) noexcept {
@@ -191,109 +192,82 @@ namespace net {
     constexpr int host::enet_host_service_locked(ENetHost *host, ENetEvent *event, enet_uint32 timeout) {
         std::unique_lock lock(m_mutex);
         enet_uint32 waitCondition;
-
         if (event != nullptr) {
             event->type   = ENET_EVENT_TYPE_NONE;
             event->peer   = nullptr;
             event->packet = nullptr;
-
             switch (enet_protocol_dispatch_incoming_commands(host, event)) {
                 case 1:
                     return 1;
-
                 case -1:
                     #ifdef ENET_DEBUG
                     perror("Error dispatching incoming packets");
                     #endif
-
                     return -1;
-
                 default:
                     break;
             }
         }
-
         host->serviceTime = enet_time_get();
         timeout += host->serviceTime;
-
         do {
             if (ENET_TIME_DIFFERENCE(host->serviceTime, host->bandwidthThrottleEpoch) >= ENET_HOST_BANDWIDTH_THROTTLE_INTERVAL) {
                 enet_host_bandwidth_throttle(host);
             }
-
             switch (enet_protocol_send_outgoing_commands(host, event, 1)) {
                 case 1:
                     return 1;
-
                 case -1:
                     #ifdef ENET_DEBUG
                     perror("Error sending outgoing packets");
                     #endif
-
                     return -1;
-
                 default:
                     break;
             }
-
             switch (enet_protocol_receive_incoming_commands(host, event)) {
                 case 1:
                     return 1;
-
                 case -1:
                     #ifdef ENET_DEBUG
                     perror("Error receiving incoming packets");
                     #endif
-
                     return -1;
-
                 default:
                     break;
             }
-
             switch (enet_protocol_send_outgoing_commands(host, event, 1)) {
                 case 1:
                     return 1;
-
                 case -1:
                     #ifdef ENET_DEBUG
                     perror("Error sending outgoing packets");
                     #endif
-
                     return -1;
-
                 default:
                     break;
             }
-
             if (event != nullptr) {
                 switch (enet_protocol_dispatch_incoming_commands(host, event)) {
                     case 1:
                         return 1;
-
                     case -1:
                         #ifdef ENET_DEBUG
                         perror("Error dispatching incoming packets");
                         #endif
-
                         return -1;
-
                     default:
                         break;
                 }
             }
-
             if (ENET_TIME_GREATER_EQUAL(host->serviceTime, timeout)) {
                 return 0;
             }
-
             do {
                 host->serviceTime = enet_time_get();
-
                 if (ENET_TIME_GREATER_EQUAL(host->serviceTime, timeout)) {
                     return 0;
                 }
-
                 waitCondition = ENET_SOCKET_WAIT_RECEIVE | ENET_SOCKET_WAIT_INTERRUPT;
                 lock.unlock();
                 if (enet_socket_wait(host->socket, &waitCondition, ENET_TIME_DIFFERENCE(timeout, host->serviceTime)) != 0) {
@@ -301,13 +275,9 @@ namespace net {
                 }
                 lock.lock();
             } while (waitCondition & ENET_SOCKET_WAIT_INTERRUPT);
-
             host->serviceTime = enet_time_get();
         } while (waitCondition & ENET_SOCKET_WAIT_RECEIVE);
-
         return 0;
     }
-
 } // net
-
 #endif //SERVER_H

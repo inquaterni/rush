@@ -1,12 +1,27 @@
+// Copyright (c) 2026 Maksym Matskevych
 //
-// Created by inquaterni on 1/29/26.
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
 //
 #include <gtest/gtest.h>
-
 #include "gmock/gmock-function-mocker.h"
 #include "gmock/gmock-nice-strict.h"
 #include "pty_pumper.h"
-
 class fake_host: public net::host {
 public:
     using host::host_type;
@@ -14,7 +29,6 @@ public:
     : host(std::forward<host_type>(other.m_host)) {}
     explicit fake_host(host_type &&type) noexcept
     : host(std::move(type)) {}
-
     MOCK_METHOD(bool, send, (ENetPeer *, const std::vector<net::u8> &data, net::u8, net::u32, bool), (const noexcept));
 };
 class fake_encryption final: public crypto::encryption {
@@ -53,10 +67,8 @@ fake_encryption::decrypt_inplace(const std::span<const crypto::u8> &ciphertext) 
 class fake_cipher final : public crypto::cipher {
 public:
     explicit fake_cipher(std::unique_ptr<crypto::encryption> &&encryption) : cipher(std::move(encryption)) {}
-
     fake_cipher(fake_cipher &&other) noexcept
     : cipher(std::forward<std::unique_ptr<crypto::encryption>>(other.encryptor)) {};
-
     [[nodiscard]]
     std::expected<std::vector<net::u8>, std::string> encrypt(const std::span<const net::u8> data) const noexcept {
         return encryptor->encrypt(data);
@@ -66,7 +78,6 @@ class pty_pumper_tests : public testing::Test {
 public:
     pty_pumper_tests() noexcept : ctx(asio::io_context{}), mock_host(fake_host::host_type{nullptr, net::host_deleter{}}),
     mock_cipher(std::make_unique<fake_encryption>()) {}
-
     pty_pumper_tests(testing::StrictMock<fake_host> mock_host,
                      fake_cipher &&mock_cipher, ENetPeer *dummy_peer) noexcept :
         ctx(asio::io_context {}), mock_host(std::move(mock_host)), mock_cipher(std::forward<fake_cipher>(mock_cipher)), dummy_peer(dummy_peer) {}
@@ -86,17 +97,14 @@ public:
         close(fds[0]);
         close(fds[1]);
     }
-
 protected:
     asio::io_context ctx;
     int fds[2] {};
-
     testing::StrictMock<fake_host> mock_host;
     fake_cipher mock_cipher;
     ENetPeer* dummy_peer = reinterpret_cast<ENetPeer *>(0xDEADBEEF);
     std::shared_ptr<net::pty_pumper> pumper;
 };
-
 TEST_F(pty_pumper_tests, reads_from_fd_and_sends) {
     pumper->start();
     EXPECT_CALL(mock_host, send(dummy_peer, testing::_, testing::_, testing::_, true))
@@ -106,11 +114,9 @@ TEST_F(pty_pumper_tests, reads_from_fd_and_sends) {
             return true;
         })
     ));
-
     const std::vector<net::u8> payload{'h', 'e', 'l', 'l', 'o'};
     const auto written = write(fds[1], payload.data(), payload.size());
     ASSERT_EQ(static_cast<ssize_t>(payload.size()), written);
-
     ctx.restart();
     ctx.run_one();
     pumper->stop();
@@ -119,7 +125,6 @@ TEST_F(pty_pumper_tests, reads_from_fd_and_sends) {
 TEST_F(pty_pumper_tests, stop_cancels_pending_ops) {
     using namespace std::chrono_literals;
     pumper->start();
-
     const std::vector<net::u8> payload{'h', 'e', 'l', 'l', 'o'};
     auto written = write(fds[1], payload.data(), payload.size());
     ASSERT_EQ(static_cast<ssize_t>(payload.size()), written);
@@ -132,17 +137,14 @@ TEST_F(pty_pumper_tests, stop_cancels_pending_ops) {
                 return true;
             })
         ));
-
     ctx.restart();
     ctx.run_one();
     ctx.stop();
     pumper->stop();
     EXPECT_TRUE(called);
-
     const std::vector<net::u8> payload3{'o', 'k', 'a', 'y'};
     written = write(fds[1], payload3.data(), payload3.size());
     ASSERT_EQ(static_cast<ssize_t>(payload3.size()), written);
-
     EXPECT_CALL(mock_host, send(testing::_, testing::_, testing::_, testing::_, testing::_)).Times(0);
     ctx.restart();
     ctx.run_one();

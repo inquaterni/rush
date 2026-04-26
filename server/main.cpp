@@ -1,5 +1,22 @@
+// Copyright (c) 2026 Maksym Matskevych
 //
-// Created by inquaterni on 12/30/25.
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
 //
 #include <asio.hpp>
 #include "../client/guard.h"
@@ -9,10 +26,8 @@
 #include "key_pair.h"
 #include "packet.h"
 #include "state.h"
-
 #include "global.h"
 #include "spdlog/spdlog.h"
-
 #if RUSH_EXCEPTIONS_ENABLED
 #else
 namespace asio::detail {
@@ -28,18 +43,14 @@ namespace asio::detail {
     template void throw_exception<std::out_of_range>(std::out_of_range const &);
     template void throw_exception<std::bad_alloc>(std::bad_alloc const &);
     template void throw_exception<asio::service_already_exists>(asio::service_already_exists const &);
-
 } // namespace asio::detail
 #endif
-
 int main() {
     // 🚨🚨🚨 SINGLETON DETECTED 🚨🚨🚨
     net::guard::get_instance();
     // 🚨🚨🚨 SINGLETON DETECTED 🚨🚨🚨
     crypto::guard::get_instance();
-
     auto io_ctx = asio::io_context{};
-
     auto host = net::host::create(ENET_HOST_ANY, 6969);
     if (!host) [[unlikely]] {
         spdlog::critical("Failed to create server: {}", host.error());
@@ -51,13 +62,10 @@ int main() {
         return EXIT_FAILURE;
     }
     spdlog::info("Server is initialized");
-
     std::atomic_bool shutdown = false;
-
     std::jthread send_thread{[&host] { (*host)->send_loop(); }};
     auto work_guard = asio::make_work_guard(io_ctx);
     std::jthread pump_thread{[&io_ctx] { io_ctx.run(); }};
-
     asio::signal_set signals(io_ctx, SIGINT, SIGTERM);
     signals.async_wait([&io_ctx, &host, &work_guard, &shutdown](auto error, int) {
         if (!error) [[likely]] {
@@ -72,7 +80,6 @@ int main() {
         if (!e) {
             continue;
         }
-
         // ReSharper disable once CppParameterMayBeConstPtrOrRef (`const` will cause SIGSEGV)
         std::visit(net::overloaded{[&](net::connect_event &ce) constexpr {
            spdlog::info("Peer connected. Waiting for handshake.");
@@ -93,7 +100,6 @@ int main() {
         },
        e.value());
     }
-
     pump_thread.join();
     send_thread.join();
     return EXIT_SUCCESS;

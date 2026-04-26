@@ -1,9 +1,25 @@
+// Copyright (c) 2026 Maksym Matskevych
 //
-// Created by inquaterni on 12/30/25.
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
 //
 #include <iostream>
 #include <spdlog/spdlog.h>
-
 #include "../crypto/include/guard.h"
 #include "../net/include/guard.h"
 #include "cipher.h"
@@ -12,17 +28,13 @@
 #include "key_pair.h"
 #include "signals.hpp"
 #include "xchacha20poly1305.h"
-
 #include <sys/signalfd.h>
-
 // #include "asio/co_spawn.hpp"
 // #include "asio/signal_set.hpp"
 #include <asio/co_spawn.hpp>
 #include <asio/signal_set.hpp>
 #include "state.h"
 #include "global.h"
-
-
 #if RUSH_EXCEPTIONS_ENABLED
 #else
 namespace asio::detail {
@@ -38,31 +50,24 @@ namespace asio::detail {
     template void throw_exception<std::out_of_range>(std::out_of_range const&);
     template void throw_exception<std::bad_alloc>(std::bad_alloc const&);
     template void throw_exception<asio::service_already_exists>(asio::service_already_exists const&);
-
 } // asio::detail
 #endif
-
-
 constexpr std::pair<std::string_view, std::string_view>
 split_pair(std::string_view arg, const char delimiter) {
-
     const auto pos = arg.find(delimiter);
     if (pos == std::string_view::npos) {
         return {arg, {}};
     }
-
     return {
         arg.substr(0, pos),
         arg.substr(pos + 1)
     };
 }
-
 int main(const int argc, char **argv) {
     // 🚨🚨🚨 SINGLETON DETECTED 🚨🚨🚨
     net::guard::get_instance();
     // 🚨🚨🚨 SINGLETON DETECTED 🚨🚨🚨
     crypto::guard::get_instance();
-
     auto io_ctx = asio::io_context {};
     asio::signal_set signals(io_ctx);
     signals.add(SIGHUP);
@@ -72,15 +77,12 @@ int main(const int argc, char **argv) {
     signals.add(SIGUSR1);
     signals.add(SIGUSR2);
     signals.add(SIGWINCH);
-
     if (argc < 2) {
         spdlog::error("No `<user>@<host>` argument.");
         return EXIT_FAILURE;
     }
-
     const std::string_view user_host = argv[1];
     const auto [user, host] = split_pair(user_host, '@');
-
     auto exp_client = net::client::create();
     if (!exp_client) [[unlikely]] {
         spdlog::critical("Failed to create client: {}", exp_client.error());
@@ -93,12 +95,10 @@ int main(const int argc, char **argv) {
         return EXIT_FAILURE;
     }
     auto &term = term::guard::get_instance();
-
     if (!client->connect(host, 6969)) {
         spdlog::critical("Failed to connect to server. Is server running?");
         return EXIT_FAILURE;
     }
-
     auto& bus = net::event_bus_t::instance();
     std::unique_ptr<net::client_context> ctx {nullptr};
     auto work_guard = asio::make_work_guard(io_ctx);
@@ -116,10 +116,8 @@ int main(const int argc, char **argv) {
         signals.async_wait(sig_handler);
     };
     signals.async_wait(sig_handler);
-
     while (true) {
         client->service(100);
-
         if (term.pwd_active()) [[unlikely]] {
             if (auto pwd = term.poll_pwd()) {
                 if (!bus.enqueue(net::pwd_response_event(std::move(*pwd)))) {
@@ -127,12 +125,10 @@ int main(const int argc, char **argv) {
                 }
             }
         }
-
         auto e = bus.dequeue();
         if (!e) {
             continue;
         }
-
         const auto ec = std::visit<std::optional<asio::error_code>>(net::overloaded{
             [&](const net::connect_event &) constexpr {
                 spdlog::info("Connected. Sending handshake...");
@@ -166,7 +162,6 @@ int main(const int argc, char **argv) {
                 return std::nullopt;
             }
         }, *e);
-
         if (ec) break;
     }
     return EXIT_SUCCESS;
