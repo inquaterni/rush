@@ -26,37 +26,34 @@
 #include <vector>
 #include "types.h"
 namespace net {
-#if defined(__x86_64__) || defined(_M_X64)
     // Tagged pointer structure:
     // Bits:
-    //  63      48 47                    0
-    // ┌────────┬────────────────────────┐
-    // │  tag   │       pointer          │
-    // └────────┴────────────────────────┘
+    //  128                    64 63                    0
+    // ┌───────────────────────┬────────────────────────┐
+    // │  tag                  │       pointer          │
+    // └───────────────────────┴────────────────────────┘
     template<typename T>
-    struct tagged_ptr {
+    struct alignas(16) tagged_ptr {
         using pointer = T*;
-        static constexpr std::size_t pointer_mask = 0x0000'FFFF'FFFF'FFFF;
-        static constexpr u8 tag_shift = 48;
-        static tagged_ptr make(T* ptr, const u16 tag = 0) noexcept{
-            return tagged_ptr {
-                static_cast<std::uintptr_t>(tag) << tag_shift | (reinterpret_cast<std::uintptr_t>(ptr) & pointer_mask)
-            };
+        static tagged_ptr make(T* ptr, const u64 tag = 0) noexcept{
+            return tagged_ptr {ptr, tag};
         }
         pointer ptr() const noexcept {
-            return reinterpret_cast<pointer>(value & pointer_mask);
+            return m_ptr;
         }
         [[nodiscard]]
-        u16 tag() const noexcept {
-            return value >> tag_shift;
+        u64 tag() const noexcept {
+            return m_tag;
         }
         tagged_ptr bumped() const noexcept {
-            return make(ptr(), tag() + 1);
+            return tagged_ptr{m_ptr, m_tag + 1};
         }
-        explicit constexpr tagged_ptr(const std::uintptr_t ptr) noexcept: value {ptr} {}
-        constexpr tagged_ptr() noexcept: value {reinterpret_cast<std::uintptr_t>(nullptr)} {}
+        explicit constexpr tagged_ptr(T* ptr) noexcept: m_ptr {ptr} {}
+        explicit constexpr tagged_ptr(T* ptr, const u64 tag) noexcept: m_tag{tag}, m_ptr{ptr} {}
+        constexpr tagged_ptr() noexcept: m_ptr {nullptr} {}
     private:
-        std::uintptr_t value;
+        u64 m_tag{};
+        pointer m_ptr;
     };
     template<typename T>
     class object_pool {
@@ -132,7 +129,6 @@ namespace net {
             constexpr explicit chunk(const std::size_t capacity) noexcept
             : blocks {new node[capacity]} {}
         };
-        static_assert(std::atomic<node_tptr>::is_always_lock_free);
         std::vector<chunk> m_pool {};
         std::size_t current_chunk_index {0};
         std::size_t m_chunk_capacity;
@@ -142,82 +138,7 @@ namespace net {
             m_pool.emplace_back(chunk_capacity);
         }
     };
-#elif defined(__aarch64__) || defined(__arm__) || defined(_M_ARM64) || defined(_M_ARM)
-    template<typename T>
-    class object_pool {
-    public:
-        using value_type = T;
-        using pointer = T *;
-        using pool_ptr = std::unique_ptr<value_type, void(*)(value_type*)>;
-        static constexpr object_pool &get_instance() noexcept {
-            static object_pool instance {};
-            return instance;
-        }
-        template<typename... Args>
-        constexpr pool_ptr acquire(Args&&... args) noexcept {
-            pointer raw {nullptr};
-            {
-                std::scoped_lock lock(m_free_list_mutex);
-                if (free_list) {
-                    node* head = free_list;
-                    free_list = head->next;
-                    raw = new (head->storage) value_type(std::forward<Args>(args)...);
-                    return pool_ptr {raw, [](T *p) { get_instance().release(p); }};
-                }
-            }
-            std::size_t idx = current_chunk_index.fetch_add(1, std::memory_order_relaxed);
-            {
-                std::scoped_lock lock(m_mutex);
-                if (idx >= m_pool.size() * m_chunk_capacity) {
-                    m_pool.emplace_back(m_chunk_capacity);
-                    current_chunk_index.store(1, std::memory_order_relaxed);
-                    idx = 0;
-                }
-                node* block = &m_pool.back().blocks[idx];
-                raw = new (block->storage) value_type(std::forward<Args>(args)...);
-            }
-            return pool_ptr {raw, [](T *p) noexcept {
-                get_instance().release(p);
-            }};
-        }
-        constexpr std::size_t capacity() noexcept {
-            std::scoped_lock lock(m_mutex);
-            return m_pool.size() * m_chunk_capacity;
-        }
-        constexpr object_pool(const object_pool &other) = delete;
-        constexpr object_pool &operator=(const object_pool &other) = delete;
-        constexpr object_pool(object_pool &&other) = delete;
-        constexpr object_pool &operator=(object_pool &&other) = delete;
-    private:
-        std::mutex m_mutex {};
-        std::mutex m_free_list_mutex {};
-        union node {
-            node* next;
-            alignas(value_type) char storage[sizeof(value_type)];
-        };
-        struct chunk {
-            std::unique_ptr<node[]> blocks;
-            constexpr explicit chunk(const std::size_t capacity) noexcept
-            : blocks {new node[capacity]} {}
-        };
-        std::vector<chunk> m_pool {};
-        std::atomic<std::size_t> current_chunk_index {0};
-        std::size_t m_chunk_capacity;
-        node* free_list {nullptr};
-        explicit constexpr object_pool(std::size_t chunk_capacity = 4096) noexcept
-        : m_chunk_capacity(chunk_capacity) {
-            m_pool.emplace_back(chunk_capacity);
-        }
-        void release(pointer p) {
-            if (!p) return;
-            p->~value_type();
-            node* block = reinterpret_cast<node*>(p);
-            std::scoped_lock lock(m_free_list_mutex);
-            block->next = free_list;
-            free_list = block;
-        }
-    };
-#endif
+
     using object_pool_t = object_pool<std::vector<u8>>;
 } // net
 #endif //OBJECT_POOL_H

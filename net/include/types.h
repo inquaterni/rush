@@ -29,6 +29,7 @@ namespace net {
     using u8 = uint8_t;
     using u16 = uint16_t;
     using u32 = uint32_t;
+    using u64 = uint64_t;
     using packet_ptr = std::unique_ptr<ENetPacket, packet_deleter>;
     constexpr std::span<const u8> capnp_array_to_span(const kj::Array<capnp::word> &words) {
         return std::span {reinterpret_cast<const u8 *>(words.begin()), words.size() * sizeof(capnp::word)};
