@@ -62,12 +62,11 @@ namespace tunnel {
                 return;
             }
             const auto pkt = net::shell_message{net::packet_type::BYTES, self->m_buffer, n};
-            const auto words = serial::packet_serializer::serialize_into_pool(pkt);
-            const auto encrypted = self->m_cipher.encrypt_inplace(std::span(*words));
-            if (!encrypted) [[unlikely]] {
+            auto words = serial::packet_serializer::serialize_into_pool(pkt);
+            if (const auto encrypted = self->m_cipher.encrypt_inplace(words); !encrypted) [[unlikely]] {
                 return self->do_read_stdin();
             }
-            auto _ = self->m_client->send(std::move(**encrypted));
+            auto _ = self->m_client->send(std::move(*words));
             return self->do_read_stdin();
         });
     }
@@ -82,12 +81,11 @@ namespace tunnel {
                     if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) < 0) [[unlikely]]
                         break;
                     const auto pkt = net::resize_packet{ws};
-                    const auto words = serial::packet_serializer::serialize_into_pool(pkt);
-                    const auto encrypted = self->m_cipher.encrypt_inplace(std::span(*words));
-                    if (!encrypted) [[unlikely]] {
+                    auto words = serial::packet_serializer::serialize_into_pool(pkt);
+                    if (const auto encrypted = self->m_cipher.encrypt_inplace(words); !encrypted) [[unlikely]] {
                         break;
                     }
-                    auto _ = self->m_client->send(std::move(**encrypted), 1);
+                    auto _ = self->m_client->send(std::move(*words), 1);
                 } break;
                 case SIGHUP:
                 case SIGINT:
@@ -99,12 +97,11 @@ namespace tunnel {
                     if (!msg)
                         break;
                     const auto pkt = net::shell_message{net::packet_type::SIGNAL, *msg};
-                    const auto words = serial::packet_serializer::serialize_into_pool(pkt);
-                    const auto encrypted = self->m_cipher.encrypt_inplace(std::span(*words));
-                    if (!encrypted) [[unlikely]] {
+                    auto words = serial::packet_serializer::serialize_into_pool(pkt);
+                    if (const auto encrypted = self->m_cipher.encrypt_inplace(words); !encrypted) [[unlikely]] {
                         break;
                     }
-                    auto _ = self->m_client->send(std::move(**encrypted));
+                    auto _ = self->m_client->send(std::move(*words));
                 } break;
                 default:
                     break;

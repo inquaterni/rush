@@ -24,6 +24,8 @@
 #include <span>
 #include <string>
 #include <vector>
+
+#include "../net/include/object_pool.h"
 #include "session_keys.h"
 namespace crypto {
     class encryption {
@@ -34,12 +36,9 @@ namespace crypto {
         virtual ~encryption() = default;
         [[nodiscard]] virtual constexpr std::expected<std::vector<u8>, std::string> encrypt(const std::span<const u8> & /* message */) = 0;
         [[nodiscard]] virtual constexpr std::expected<std::vector<u8>, std::string> encrypt(const std::vector<u8> & /* message */) = 0;
-        [[nodiscard]] virtual constexpr std::expected<std::unique_ptr<std::vector<u8>, void (*)(std::vector<u8> *)>,
-                                                      std::string>
-        encrypt_inplace(const std::span<const u8> & /* message */) = 0;
+        [[nodiscard]] virtual constexpr std::expected<void, std::string> encrypt_inplace(net::object_pool_t::pool_ptr &vault) = 0;
         [[nodiscard]] virtual constexpr std::expected<std::vector<u8>, std::string> decrypt(const std::span<const u8> & /* encrypted */) = 0;
         [[nodiscard]] virtual constexpr std::expected<std::span<u8>, std::string> decrypt_inplace(const std::span<u8> & /* encrypted */) = 0;
-        [[nodiscard]] virtual constexpr std::expected<std::shared_ptr<std::vector<u8>>, std::string> decrypt_inplace(const std::span<const u8> & /* encrypted */) = 0;
         [[nodiscard]] virtual constexpr std::expected<std::vector<u8>, std::string> decrypt(const std::vector<u8> & /* encrypted */) = 0;
     };
 } // crypto

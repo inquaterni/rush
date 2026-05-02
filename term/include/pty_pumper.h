@@ -59,10 +59,9 @@ namespace net {
                     if (self->m_host) {
                         const auto data = std::span (self->m_buffer.begin(), self->m_buffer.begin() + n);
                         const auto pkt = shell_message{packet_type::BYTES, data};
-                        const auto words = serial::packet_serializer::serialize_into_pool(pkt);
-                        auto encrypted = self->m_cipher.encrypt_inplace(*words);
-                        if (!encrypted) return self->read_loop();
-                        self->m_host->send(self->m_peer, std::move(*encrypted));
+                        auto words = serial::packet_serializer::serialize_into_pool(pkt);
+                        if (const auto encrypted = self->m_cipher.encrypt_inplace(words); !encrypted) return self->read_loop();
+                        self->m_host->send(self->m_peer, std::move(words));
                     }
                     return self->read_loop();
                 }

@@ -25,6 +25,8 @@
 #include <span>
 #include <string>
 #include <vector>
+#include <optional>
+#include "../../net/include/object_pool.h"
 #include "encryption.h"
 #include "session_keys.h"
 namespace crypto {
@@ -43,21 +45,14 @@ namespace crypto {
             return encryptor->encrypt(message);
         }
         [[nodiscard]]
-        constexpr std::expected<std::unique_ptr<std::vector<u8>, void (*)(std::vector<u8> *)>, std::string> encrypt_inplace(const std::span<const u8> &message) const {
+        constexpr std::expected<void, std::string> encrypt_inplace(net::object_pool_t::pool_ptr &vault) const {
             if (!encryptor) {
                 return std::unexpected { "Encryptor pointer is null" };
             }
-            return encryptor->encrypt_inplace(message);
+            return encryptor->encrypt_inplace(vault);
         }
         [[nodiscard]]
         constexpr std::expected<std::span<u8>, std::string> decrypt_inplace(const std::span<u8> &message) const {
-            if (!encryptor) {
-                return std::unexpected { "Encryptor pointer is null" };
-            }
-            return encryptor->decrypt_inplace(message);
-        }
-        [[nodiscard]]
-        constexpr std::expected<std::shared_ptr<std::vector<u8>>, std::string> decrypt_inplace(const std::span<const u8> &message) const {
             if (!encryptor) {
                 return std::unexpected { "Encryptor pointer is null" };
             }

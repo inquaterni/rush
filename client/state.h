@@ -103,7 +103,7 @@ namespace net {
         constexpr conn_confirm(conn_confirm&&) = default;
         constexpr conn_confirm& operator=(conn_confirm&&) = default;
         [[nodiscard]]
-        auto handle(const receive_event &e, const crypto::cipher &cipher) const noexcept;
+        auto handle(receive_event &e, const crypto::cipher &cipher) const noexcept;
     private:
         std::chrono::steady_clock::time_point confirm_start_point {std::chrono::steady_clock::now()};
     };
@@ -135,7 +135,7 @@ namespace net {
         constexpr connected(connected&&) = default;
         constexpr connected& operator=(connected&&) = default;
         [[nodiscard]]
-        auto handle(const std::shared_ptr<client> &c, const receive_event &e,
+        auto handle(const std::shared_ptr<client> &c, receive_event &e,
                     const crypto::cipher &cipher) const noexcept;
     private:
         // static constexpr void write_ansi_aware(const std::span<const u8> &bytes) noexcept {
@@ -236,15 +236,14 @@ namespace net {
                 auto cipher = crypto::cipher(std::move(encryptor));
                 constexpr auto confirm = shell_message{packet_type::BYTES,
                                                    std::span(c_confirm_magic, c_confirm_magic + sizeof(c_confirm_magic))};
-                const auto buf = serial::packet_serializer::serialize_into_pool(confirm);
-                const auto encrypted = cipher.encrypt_inplace(std::span(*buf));
-                if (!encrypted) [[unlikely]] {
+                auto buf = serial::packet_serializer::serialize_into_pool(confirm);
+                if (const auto encrypted = cipher.encrypt_inplace(buf); !encrypted) [[unlikely]] {
                     if (retries++ > max_retries) {
                         return transition::disconnect("Maximum retries exceeded.");
                     }
                     return transition::keep();
                 }
-                if (!c->send(std::move(**encrypted))) [[unlikely]] {
+                if (!c->send(std::move(*buf))) [[unlikely]] {
                     if (retries++ > max_retries) {
                         return transition::disconnect("Maximum retries exceeded.");
                     }
@@ -269,7 +268,7 @@ namespace net {
             }
         }, *pkt);
     }
-    inline auto conn_confirm::handle(const receive_event &e,
+    inline auto conn_confirm::handle(receive_event &e,
                                      const crypto::cipher &cipher) const noexcept {
         if (std::chrono::steady_clock::now() - confirm_start_point > max_duration) {
             return transition::disconnect("Timeout reached.");
@@ -278,7 +277,7 @@ namespace net {
         if (!decrypted) [[unlikely]] {
             return transition::keep();
         }
-        const auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(**decrypted));
+        const auto pkt = serial::packet_serializer::deserialize(u8_span_to_word_span(*decrypted));
         if (!pkt) [[unlikely]] {
             return transition::keep();
         }
@@ -306,12 +305,11 @@ namespace net {
     // ReSharper disable once CppMemberFunctionMayBeStatic
     inline auto await_password::handle(const std::shared_ptr<client> &c, const pwd_response_event &e, const crypto::cipher &cipher, const std::string_view user) const noexcept {
         const auto auth_request = auth_packet{user, e.pwd()};
-        const auto words = serial::packet_serializer::serialize_into_pool(auth_request);
-        const auto encrypted = cipher.encrypt_inplace(std::span(*words));
-        if (!encrypted) [[unlikely]] {
+        auto words = serial::packet_serializer::serialize_into_pool(auth_request);
+        if (const auto encrypted = cipher.encrypt_inplace(words); !encrypted) [[unlikely]] {
             return transition::keep();
         }
-        if (!c->send(std::move(**encrypted))) {
+        if (!c->send(std::move(*words))) {
             return transition::keep();
         }
         return transition::to(authenticating{retries});
@@ -345,13 +343,12 @@ namespace net {
                             return transition::activate_session();
                         }
                         const auto resize = resize_packet {*ws};
-                        const auto serialized = serial::packet_serializer::serialize_into_pool(resize);
-                        const auto encrypted = cipher.encrypt_inplace(std::span(*serialized));
-                        if (!encrypted) [[unlikely]] {
+                        auto serialized = serial::packet_serializer::serialize_into_pool(resize);
+                        if (const auto encrypted = cipher.encrypt_inplace(serialized); !encrypted) [[unlikely]] {
                             spdlog::warn("Failed to encrypt window size data.");
                             return transition::activate_session();
                         }
-                        if (!c->send(std::move(**encrypted), 1)) {
+                        if (!c->send(std::move(*serialized), 1)) {
                             spdlog::warn("Failed to send encrypted data.");
                             return transition::activate_session();
                         }
@@ -369,13 +366,13 @@ namespace net {
         }, *pkt);
     }
     // ReSharper disable once CppMemberFunctionMayBeStatic
-    inline auto connected::handle(const std::shared_ptr<client> &, const receive_event &e,
+    inline auto connected::handle(const std::shared_ptr<client> &, receive_event &e,
                                   const crypto::cipher &cipher) const noexcept {
         const auto decrypted = cipher.decrypt_inplace(e.payload());
         if (!decrypted) [[unlikely]] {
             return transition::keep();
         }
-        const auto pkt = serial::packet_serializer::deserialize(u8_vector_to_word_span(**decrypted));
+        const auto pkt = serial::packet_serializer::deserialize(u8_span_to_word_span(*decrypted));
         if (!pkt) [[unlikely]] {
             return transition::keep();
         }

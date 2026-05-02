@@ -32,15 +32,12 @@ namespace crypto {
         explicit constexpr xchacha20poly1305(session_keys &&ss) noexcept;
         [[nodiscard]] constexpr std::expected<std::vector<u8>, std::string> encrypt(const std::span<const u8> &) override;
         [[nodiscard]] constexpr std::expected<std::vector<u8>, std::string> encrypt(const std::vector<u8> &) override;
-        [[nodiscard]] constexpr std::expected<std::unique_ptr<std::vector<u8>, void (*)(std::vector<u8> *)>,
-                                              std::string>
-        encrypt_inplace(const std::span<const u8> &) override;
+        [[nodiscard]] constexpr std::expected<void, std::string>
+        encrypt_inplace(net::object_pool_t::pool_ptr &vault) override;
         [[nodiscard]] constexpr std::expected<std::vector<u8>, std::string> decrypt(const std::span<const u8> &) override;
         [[nodiscard]] constexpr std::expected<std::vector<u8>, std::string> decrypt(const std::vector<u8> &) override;
         [[nodiscard]] constexpr std::expected<std::span<u8>, std::string>
         decrypt_inplace(const std::span<u8> &) override;
-        [[nodiscard]] constexpr std::expected<std::shared_ptr<std::vector<u8>>, std::string>
-        decrypt_inplace(const std::span<const u8> &) override;
     private:
         constexpr static u64 nonce_len = crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
         constexpr static u64 mac_len = crypto_aead_xchacha20poly1305_ietf_ABYTES;
@@ -83,23 +80,29 @@ namespace crypto {
         encrypted.resize(nonce_len + ciphertext_len);
         return encrypted;
     }
-    constexpr std::expected<std::unique_ptr<std::vector<u8>, void (*)(std::vector<u8> *)>, std::string>
-    xchacha20poly1305::encrypt_inplace(const std::span<const u8> &message) {
+    constexpr std::expected<void, std::string> xchacha20poly1305::encrypt_inplace(net::object_pool_t::pool_ptr &vault) {
         if (!guard::is_initialized()) {
-            return std::unexpected{"Sodium is not initialized."};
+            return std::unexpected {"Sodium is not initialized."};
         }
-        auto encrypted = net::object_pool<std::vector<u8>>::get_instance().acquire();
-        encrypted->resize(message.size() + nonce_len + mac_len);
-        randombytes_buf(encrypted->data(), nonce_len);
+        if (!vault) {
+            return std::unexpected {"Pool vault is NULL."};
+        }
+        const auto plaintext_len = vault->size();
+        vault->resize(vault->size() + nonce_len + mac_len);
+        // Shift plaintext to right for nonce to fit
+        std::memmove(vault->data() + nonce_len, vault->data(), plaintext_len);
+
+        randombytes_buf(vault->data(), nonce_len);
         u64 ciphertext_len;
-        const int err = crypto_aead_xchacha20poly1305_ietf_encrypt(encrypted->data() + nonce_len, &ciphertext_len,
-                                                                   message.data(), message.size(), nullptr, 0, nullptr,
-                                                                   encrypted->data(), ss.tx().data());
+        const int err = crypto_aead_xchacha20poly1305_ietf_encrypt(vault->data() + nonce_len, &ciphertext_len,
+                                                                   vault->data() + nonce_len, plaintext_len,
+                                                                   nullptr, 0, nullptr,
+                                                                   vault->data(), ss.tx().data());
         if (err != 0) {
-            return std::unexpected{"Sodium encryption failed."};
+            return std::unexpected {"Sodium encryption failed."};
         }
-        encrypted->resize(nonce_len + ciphertext_len);
-        return encrypted;
+        vault->resize(nonce_len + ciphertext_len);
+        return {};
     }
     constexpr std::expected<std::vector<u8>, std::string> xchacha20poly1305::decrypt(const std::span<const u8> &cipher) {
         if (!guard::is_initialized()) {
@@ -160,29 +163,6 @@ namespace crypto {
             return std::unexpected{"Sodium decryption failed."};
         }
         return std::span {ciphertext, decrypted_len};
-    }
-    constexpr std::expected<std::shared_ptr<std::vector<u8>>, std::string> xchacha20poly1305::decrypt_inplace(const std::span<const u8> &cipher) {
-        if (!guard::is_initialized()) {
-            return std::unexpected{"Sodium is not initialized."};
-        }
-        if (cipher.size() < nonce_len + mac_len) {
-            return std::unexpected{"Ciphertext is too small."};
-        }
-        
-        auto pooled = net::object_pool<std::vector<u8>>::get_instance().acquire();
-        const u8 *nonce = cipher.data();
-        const u8 *ciphertext = cipher.data() + nonce_len;
-        const u64 ciphertext_len = cipher.size() - nonce_len;
-        u64 decrypted_len;
-        pooled->resize(ciphertext_len);
-        const int err = crypto_aead_xchacha20poly1305_ietf_decrypt(pooled->data(), &decrypted_len, nullptr,
-                                                                   ciphertext, ciphertext_len, nullptr,
-                                                                   0, nonce, ss.rx().data());
-        if (err != 0) {
-            return std::unexpected{"Sodium decryption failed."};
-        }
-        pooled->resize(decrypted_len);
-        return pooled;
     }
 } // crypto
 #endif //XCHACHA20POLY1305_H
