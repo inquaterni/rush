@@ -36,5 +36,6 @@ target_include_directories(crypto PRIVATE ../3rdparty)
 target_link_libraries(crypto PRIVATE
         fmt::fmt
         sodium
+        jemalloc
 )
 target_compile_options(crypto PRIVATE -Wall -Wextra -Wpedantic)

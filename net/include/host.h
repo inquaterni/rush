@@ -38,7 +38,7 @@
 #endif
 namespace net {
     struct packet_data_ {
-        object_pool_t::pool_ptr data {nullptr, [] (object_pool_t::pointer) {}};
+        object_pool_t::pool_ptr data {nullptr, [] (object_pool_t::pointer) noexcept {}};
         ENetPeer *peer {nullptr};
         u32 flags{};
         u8 channel{};
@@ -68,7 +68,7 @@ namespace net {
         constexpr std::expected<event, std::string> service(int timeout = 1000) noexcept;
         RUSH_TEST_VIRTUAL constexpr bool send(ENetPeer *peer, const packet &pkt, u8 channel_id = 0,
                             u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE) noexcept;
-        RUSH_TEST_VIRTUAL constexpr bool send(ENetPeer *peer, std::unique_ptr<std::vector<u8>, void (*)(std::vector<u8> *)> &&data, u8 channel_id = 0,
+        RUSH_TEST_VIRTUAL constexpr bool send(ENetPeer *peer, object_pool_t::pool_ptr &&data, u8 channel_id = 0,
              u32 flags = ENET_PACKET_FLAG_RELIABLE | ENET_PACKET_FLAG_NO_ALLOCATE) noexcept;
         RUSH_TEST_VIRTUAL constexpr void disconnect(ENetPeer *peer) noexcept;
         constexpr void send_loop() noexcept;

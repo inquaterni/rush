@@ -63,36 +63,38 @@ namespace net {
     public:
         using value_type = T;
         using pointer = T *;
-        using pool_ptr = std::unique_ptr<value_type, void(*)(value_type*)>;
+        using pool_ptr = std::unique_ptr<value_type, void(*)(value_type*) noexcept>;
+
         static constexpr object_pool &get_instance() noexcept {
             static object_pool instance {};
             return instance;
         }
         template<typename... Args>
+        [[nodiscard]]
         constexpr pool_ptr acquire(Args&&... args) noexcept {
+            static constexpr auto deleter = [](T* p) noexcept { get_instance().release(p); };
+
             pointer raw {nullptr};
             node_tptr old_head = free_list.load(std::memory_order_acquire);
             while (old_head.ptr()) {
-                if (node_tptr new_head = node_tptr::make(old_head.ptr()->next, old_head.tag());
-                    free_list.compare_exchange_weak(old_head, new_head, std::memory_order_acquire, std::memory_order_relaxed)) {
+                if (node_tptr new_head = node_tptr::make(old_head.ptr()->next, old_head.tag() + 1);
+                    free_list.compare_exchange_weak(old_head, new_head,
+                        std::memory_order_acquire,
+                        std::memory_order_relaxed)) {
                     raw = new (old_head.ptr()->storage) value_type(std::forward<Args>(args)...);
-                    return pool_ptr {raw, [](T *p) { get_instance().release(p); }};
-                    }
+                    return pool_ptr {raw, deleter};
+                }
             }
-            std::size_t idx = current_chunk_index.fetch_add(1, std::memory_order_relaxed);
             {
                 std::scoped_lock lock(m_mutex);
-                if (idx >= m_pool.size() * m_chunk_capacity) {
+                if (current_chunk_index >= m_chunk_capacity) {
                     m_pool.emplace_back(m_chunk_capacity);
-                    current_chunk_index.store(1, std::memory_order_relaxed);
-                    idx = 0;
+                    current_chunk_index = 0;
                 }
-                node* block = &m_pool.back().blocks[idx];
+                node* block = &m_pool.back().blocks[current_chunk_index++];
                 raw = new (block->storage) value_type(std::forward<Args>(args)...);
             }
-            return pool_ptr {raw, [](T *p) noexcept {
-                get_instance().release(p);
-            }};
+            return pool_ptr {raw, deleter};
         }
         constexpr std::size_t capacity() noexcept {
             std::scoped_lock lock(m_mutex);
@@ -102,22 +104,27 @@ namespace net {
         constexpr object_pool &operator=(const object_pool &other) = delete;
         constexpr object_pool(object_pool &&other) = delete;
         constexpr object_pool &operator=(object_pool &&other) = delete;
-        constexpr void release(pointer p) {
+        constexpr void release(pointer p) noexcept {
             if (!p) return;
             p->~value_type();
-            node* block = reinterpret_cast<node*>(p);
+            node* block = std::launder(
+                static_cast<node*>(static_cast<void*>(p))
+            );
             node_tptr old_head = free_list.load(std::memory_order_relaxed);
             node_tptr new_head;
             do {
                 block->next = old_head.ptr();
                 new_head = node_tptr::make(block, old_head.tag() + 1);
-            } while (!free_list.compare_exchange_weak(old_head, new_head, std::memory_order_release, std::memory_order_relaxed));
+            } while (!free_list.compare_exchange_weak(old_head, new_head,
+                std::memory_order_release,
+                std::memory_order_relaxed)
+                );
         }
     private:
         std::mutex m_mutex {};
         union node {
+            alignas(value_type) std::byte storage[sizeof(value_type)];
             node* next;
-            alignas(value_type) char storage[sizeof(value_type)];
         };
         using node_tptr = tagged_ptr<node>;
         struct chunk {
@@ -127,7 +134,7 @@ namespace net {
         };
         static_assert(std::atomic<node_tptr>::is_always_lock_free);
         std::vector<chunk> m_pool {};
-        std::atomic<std::size_t> current_chunk_index {0};
+        std::size_t current_chunk_index {0};
         std::size_t m_chunk_capacity;
         std::atomic<node_tptr> free_list {node_tptr::make(nullptr)};
         explicit constexpr object_pool(std::size_t chunk_capacity = 4096) noexcept

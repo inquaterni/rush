@@ -33,5 +33,6 @@ target_link_libraries(server PRIVATE
         serial
         pack
         term
+        jemalloc
 )
 target_compile_options(server PRIVATE -Wall -Wextra -Wpedantic)

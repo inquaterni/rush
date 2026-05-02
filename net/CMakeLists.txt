@@ -27,8 +27,10 @@ set(RUSH_NET_SRCS
 add_library(net ${RUSH_NET_INCLUDES} ${RUSH_NET_SRCS})
 
 target_include_directories(net PRIVATE ../3rdparty ../crypto/include)
-target_link_libraries(net PRIVATE fmt::fmt
+target_link_libraries(net PRIVATE
+        fmt::fmt
         CapnProto::capnp
         crypto
+        jemalloc
 )
 target_compile_options(net PRIVATE -Wall -Wextra -Wpedantic)

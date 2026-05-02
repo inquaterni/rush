@@ -15,6 +15,7 @@ option(RUSH_STRIP_DEAD            "Enable dead code stripping"                 O
 option(RUSH_HIDDEN_VISIBILITY     "Hide symbols"                               ON)
 option(RUSH_ENABLE_NO_EXCEPT      "Enable -fno-exceptions"                     ON)
 option(RUSH_ENABLE_NO_RTTI        "Enable -fno-rtti"                           ON)
+option(RUSH_USE_JEMALLOC          "Replace system allocator with jemalloc"     ON)
 option(RUSH_ENABLE_FAST_MATH      "Enable -ffast-math (not recommended)"       OFF)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ${RUSH_ENABLE_PIC})
@@ -154,6 +155,54 @@ if(CMAKE_BUILD_TYPE MATCHES Release)
             add_compile_options("-ffast-math")
         endif()
     endif()
+endif()
+
+if(RUSH_USE_JEMALLOC)
+    include(ExternalProject)
+
+    set(JEMALLOC_VERSION "5.3.1")
+    set(JEMALLOC_EP_DIR  "${CMAKE_CURRENT_BINARY_DIR}/jemalloc_ep")
+    set(JEMALLOC_LIB     "${JEMALLOC_EP_DIR}/src/jemalloc_project/lib/libjemalloc_pic.a")
+    set(JEMALLOC_INC     "${JEMALLOC_EP_DIR}/src/jemalloc_project/include")
+    set(JEMALLOC_STAMP   "${CMAKE_CURRENT_BINARY_DIR}/jemalloc-${JEMALLOC_VERSION}.stamp")
+
+    if(NOT EXISTS "${JEMALLOC_STAMP}" OR NOT EXISTS "${JEMALLOC_LIB}")
+        file(REMOVE_RECURSE "${JEMALLOC_EP_DIR}")
+
+        ExternalProject_Add(jemalloc_project
+                PREFIX              "${JEMALLOC_EP_DIR}"
+                GIT_REPOSITORY      https://github.com/jemalloc/jemalloc.git
+                GIT_TAG             "${JEMALLOC_VERSION}"
+                GIT_SHALLOW         ON
+                UPDATE_DISCONNECTED ON
+                BUILD_IN_SOURCE     ON
+                CONFIGURE_COMMAND
+                <SOURCE_DIR>/autogen.sh
+                COMMAND <SOURCE_DIR>/configure
+                --with-jemalloc-prefix=
+                --disable-shared
+                --disable-stats
+                BUILD_COMMAND   make -j${nproc}
+                INSTALL_COMMAND ""
+                BUILD_BYPRODUCTS "${JEMALLOC_LIB}"
+        )
+
+        ExternalProject_Add_Step(jemalloc_project write_stamp
+                COMMAND   ${CMAKE_COMMAND} -E echo "${JEMALLOC_VERSION}" > "${JEMALLOC_STAMP}"
+                DEPENDEES build
+                ALWAYS    OFF
+        )
+    else()
+        add_custom_target(jemalloc_project)
+    endif()
+
+    file(MAKE_DIRECTORY "${JEMALLOC_INC}")
+
+    add_library(jemalloc STATIC IMPORTED GLOBAL)
+    set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION "${JEMALLOC_LIB}")
+    target_include_directories(jemalloc INTERFACE "${JEMALLOC_INC}")
+    add_dependencies(jemalloc jemalloc_project)
+    message(STATUS "Using jemalloc ${JEMALLOC_VERSION}")
 endif()
 
 add_subdirectory(net)

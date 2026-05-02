@@ -52,5 +52,6 @@ target_link_libraries(client PRIVATE
         pack
         term
         asio::asio
+        jemalloc
 )
 target_compile_options(client PRIVATE -Wall -Wextra -Wpedantic)

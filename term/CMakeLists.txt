@@ -62,5 +62,6 @@ target_link_libraries(term PRIVATE
         net
         ${PAM_LIBRARY}
         asio::asio
+        jemalloc
 )
 target_compile_options(term PRIVATE -Wall -Wextra -Wpedantic)
