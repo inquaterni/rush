@@ -31,6 +31,6 @@ target_link_libraries(net PRIVATE
         fmt::fmt
         CapnProto::capnp
         crypto
-        jemalloc
+        ${ALLOCATOR_LIB}
 )
 target_compile_options(net PRIVATE -Wall -Wextra -Wpedantic)

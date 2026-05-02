@@ -5,19 +5,21 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_UNITY_BUILD ON)
 
-option(RUSH_ENABLE_PIC            "Enable position independent code"           ON)
-option(RUSH_ENABLE_HARDENING      "Enable security hardening flags"            ON)
-option(RUSH_ENABLE_LTO            "Enable LTO"                                 ON)
-option(RUSH_BUILD_NATIVE          "Enable native build"                        ON)
-option(RUSH_ENABLE_AVX10          "Enable AVX10.1 instructions"                ON)
-option(RUSH_ENABLE_AVX2           "Enable AVX2 instructions"                   ON)
-option(RUSH_STRIP_DEAD            "Enable dead code stripping"                 ON)
-option(RUSH_HIDDEN_VISIBILITY     "Hide symbols"                               ON)
-option(RUSH_ENABLE_NO_EXCEPT      "Enable -fno-exceptions"                     ON)
-option(RUSH_ENABLE_NO_RTTI        "Enable -fno-rtti"                           ON)
-option(RUSH_USE_JEMALLOC          "Replace system allocator with jemalloc"     ON)
-option(RUSH_ENABLE_FAST_MATH      "Enable -ffast-math (not recommended)"       OFF)
+option(RUSH_ENABLE_PIC            "Enable position independent code"       ON)
+option(RUSH_ENABLE_HARDENING      "Enable security hardening flags"        ON)
+option(RUSH_ENABLE_LTO            "Enable LTO"                             ON)
+option(RUSH_BUILD_NATIVE          "Enable native build"                    ON)
+option(RUSH_ENABLE_AVX10          "Enable AVX10.1 instructions"            ON)
+option(RUSH_ENABLE_AVX2           "Enable AVX2 instructions"               ON)
+option(RUSH_STRIP_DEAD            "Enable dead code stripping"             ON)
+option(RUSH_HIDDEN_VISIBILITY     "Hide symbols"                           ON)
+option(RUSH_ENABLE_NO_EXCEPT      "Enable -fno-exceptions"                 ON)
+option(RUSH_ENABLE_NO_RTTI        "Enable -fno-rtti"                       ON)
+option(RUSH_USE_JEMALLOC          "Replace system allocator with jemalloc" OFF)
+option(RUSH_USE_MIMALLOC          "Replace system allocator with mimalloc" OFF)
+option(RUSH_ENABLE_FAST_MATH      "Enable -ffast-math (not recommended)"   OFF)
 
+set(ALLOCATOR_LIB)
 set(CMAKE_POSITION_INDEPENDENT_CODE ${RUSH_ENABLE_PIC})
 
 find_program(CCACHE_PROGRAM ccache)
@@ -157,7 +159,7 @@ if(CMAKE_BUILD_TYPE MATCHES Release)
     endif()
 endif()
 
-if(RUSH_USE_JEMALLOC)
+if(RUSH_USE_JEMALLOC AND NOT RUSH_USE_MIMALLOC)
     include(ExternalProject)
 
     set(JEMALLOC_VERSION "5.3.1")
@@ -203,6 +205,39 @@ if(RUSH_USE_JEMALLOC)
     target_include_directories(jemalloc INTERFACE "${JEMALLOC_INC}")
     add_dependencies(jemalloc jemalloc_project)
     message(STATUS "Using jemalloc ${JEMALLOC_VERSION}")
+    set(ALLOCATOR_LIB jemalloc)
+endif()
+
+if(RUSH_USE_MIMALLOC AND NOT RUSH_USE_JEMALLOC)
+    include(FetchContent)
+
+    set(MIMALLOC_VERSION "v3.3.2")
+    FetchContent_Declare(
+            mimalloc
+            GIT_REPOSITORY https://github.com/microsoft/mimalloc.git
+            GIT_TAG        ${MIMALLOC_VERSION}
+    )
+    set(MI_BUILD_TESTS OFF FORCE "")
+    set(MI_BUILD_SHARED OFF FORCE "")
+    set(MI_BUILD_OBJECT OFF FORCE "")
+    FetchContent_MakeAvailable(mimalloc)
+    
+    set(ALLOCATOR_LIB mimalloc-static)
+    message(STATUS "Using mimalloc ${MIMALLOC_VERSION}")
+    add_compile_definitions(-DUSE_MIMALLOC)
+endif()
+if (RUSH_USE_JEMALLOC AND RUSH_USE_MIMALLOC)
+    message(FATAL_ERROR "You can use either jemalloc or mimalloc, not both")
+endif()
+
+if(ALLOCATOR_LIB)
+    add_compile_options(
+            "-fno-builtin-malloc"
+            "-fno-builtin-calloc"
+            "-fno-builtin-realloc"
+            "-fno-builtin-free"
+    )
+    message(STATUS "Disabled compiler built-in allocations to enforce ${ALLOCATOR_LIB}")
 endif()
 
 add_subdirectory(net)

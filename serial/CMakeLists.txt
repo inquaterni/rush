@@ -48,6 +48,6 @@ target_include_directories(serial PUBLIC
 target_link_libraries(serial PRIVATE
         net
         CapnProto::kj-async
-        jemalloc
+        ${ALLOCATOR_LIB}
 )
 target_compile_options(serial PRIVATE -Wall -Wextra -Wpedantic)

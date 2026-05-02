@@ -53,7 +53,7 @@ namespace crypto {
         std::vector<u8> encrypted{};
         encrypted.resize(message.size() + nonce_len + mac_len);
         randombytes_buf(encrypted.data(), nonce_len);
-        u64 ciphertext_len;
+        unsigned long long ciphertext_len;
         const int err = crypto_aead_xchacha20poly1305_ietf_encrypt(encrypted.data() + nonce_len, &ciphertext_len,
                                                                    message.data(), message.size(), nullptr, 0, nullptr,
                                                                    encrypted.data(), ss.tx().data());
@@ -70,7 +70,7 @@ namespace crypto {
         std::vector<u8> encrypted{};
         encrypted.resize(message.size() + nonce_len + mac_len);
         randombytes_buf(encrypted.data(), nonce_len);
-        u64 ciphertext_len;
+        unsigned long long ciphertext_len;
         const int err = crypto_aead_xchacha20poly1305_ietf_encrypt(encrypted.data() + nonce_len, &ciphertext_len,
                                                                    message.data(), message.size(), nullptr, 0, nullptr,
                                                                    encrypted.data(), ss.tx().data());
@@ -93,7 +93,7 @@ namespace crypto {
         std::memmove(vault->data() + nonce_len, vault->data(), plaintext_len);
 
         randombytes_buf(vault->data(), nonce_len);
-        u64 ciphertext_len;
+        unsigned long long ciphertext_len;
         const int err = crypto_aead_xchacha20poly1305_ietf_encrypt(vault->data() + nonce_len, &ciphertext_len,
                                                                    vault->data() + nonce_len, plaintext_len,
                                                                    nullptr, 0, nullptr,
@@ -113,10 +113,10 @@ namespace crypto {
         }
         const u8 *nonce = cipher.data();
         const u8 *ciphertext = cipher.data() + nonce_len;
-        const u64 ciphertext_len = cipher.size() - nonce_len;
+        const unsigned long long ciphertext_len = cipher.size() - nonce_len;
         std::vector<u8> decrypted{};
         decrypted.resize(ciphertext_len - mac_len);
-        u64 decrypted_len;
+        unsigned long long decrypted_len;
         const int err = crypto_aead_xchacha20poly1305_ietf_decrypt(decrypted.data(), &decrypted_len, nullptr, ciphertext,
                                                                   ciphertext_len, nullptr, 0, nonce, ss.rx().data());
         if (err != 0) {
@@ -133,10 +133,10 @@ namespace crypto {
         }
         const u8 *nonce = cipher.data();
         const u8 *ciphertext = cipher.data() + nonce_len;
-        const u64 ciphertext_len = cipher.size() - nonce_len;
+        const unsigned long long ciphertext_len = cipher.size() - nonce_len;
         std::vector<u8> decrypted{};
         decrypted.resize(ciphertext_len - mac_len);
-        u64 decrypted_len;
+        unsigned long long decrypted_len;
         const int err =
                 crypto_aead_xchacha20poly1305_ietf_decrypt(decrypted.data(), &decrypted_len, nullptr, ciphertext,
                                                            ciphertext_len, nullptr, 0, nonce, ss.rx().data());
@@ -154,8 +154,8 @@ namespace crypto {
         }
         const u8 *nonce = cipher.data();
         u8 *ciphertext = cipher.data() + nonce_len;
-        const u64 ciphertext_len = cipher.size() - nonce_len;
-        u64 decrypted_len;
+        const unsigned long long ciphertext_len = cipher.size() - nonce_len;
+        unsigned long long decrypted_len;
         const int err = crypto_aead_xchacha20poly1305_ietf_decrypt(ciphertext, &decrypted_len, nullptr,
                                                                     ciphertext, ciphertext_len, nullptr,
                                                                     0, nonce, ss.rx().data());
