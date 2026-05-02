@@ -26,9 +26,9 @@
 #include <capnp/common.h>
 #include "packet_deleter.h"
 namespace net {
-    using u8 = unsigned char;
-    using u16 = unsigned short;
-    using u32 = unsigned;
+    using u8 = uint8_t;
+    using u16 = uint16_t;
+    using u32 = uint32_t;
     using packet_ptr = std::unique_ptr<ENetPacket, packet_deleter>;
     constexpr std::span<const u8> capnp_array_to_span(const kj::Array<capnp::word> &words) {
         return std::span {reinterpret_cast<const u8 *>(words.begin()), words.size() * sizeof(capnp::word)};

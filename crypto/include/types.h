@@ -24,8 +24,8 @@
 #include <sodium/crypto_aead_chacha20poly1305.h>
 #include <sodium/crypto_kx.h>
 namespace crypto {
-    using u8 = unsigned char;
-    using u64 = unsigned long long;
+    using u8 = uint8_t;
+    using u64 = uint64_t;
     using pkey_t = std::array<u8, crypto_kx_PUBLICKEYBYTES>;
     using skey_t = std::array<u8, crypto_kx_SECRETKEYBYTES>;
     using session_key_t = std::array<u8, crypto_kx_SESSIONKEYBYTES>;
